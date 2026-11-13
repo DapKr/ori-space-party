@@ -134,22 +134,54 @@ if (qr) {
   $('dlPng').disabled = $('dlSvg').disabled = true;
 }
 
-// ---------- unlock with the secret host link (…/host.html#key=XXXX) ----------
+// ---------- login: password typed once per device, then remembered ----------
+// (The old secret link …/host.html#key=XXXX still works too.)
+const KEY_STORE = 'ori-host-key';
+const saveKey = (k) => { try { localStorage.setItem(KEY_STORE, k); } catch {} };
+const forgetKey = () => { try { localStorage.removeItem(KEY_STORE); } catch {} };
 function readKey() {
   const fromHash = new URLSearchParams(location.hash.slice(1)).get('key');
   if (fromHash) {
-    try { localStorage.setItem('ori-host-key', fromHash); } catch {}
+    saveKey(fromHash);
     history.replaceState(null, '', location.pathname); // keep the key off the screen
     return fromHash;
   }
-  try { return localStorage.getItem('ori-host-key') || ''; } catch { return ''; }
+  try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; }
 }
 
+async function tryKey(key) {
+  store.setHostKey(key);
+  try { return await store.checkHostKey(); } catch (e) { console.error(e); return null; } // null = network trouble
+}
+
+function askForPassword() {
+  return new Promise((resolve) => {
+    $('lock').hidden = false;
+    $('pwInput').focus();
+    $('loginForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const pw = $('pwInput').value.trim();
+      $('loginBtn').disabled = true;
+      $('loginErr').textContent = '';
+      const ok = await tryKey(pw);
+      $('loginBtn').disabled = false;
+      if (ok) { saveKey(pw); $('lock').hidden = true; $('pwInput').value = ''; resolve(); }
+      else {
+        $('loginErr').textContent = ok === null ? "Couldn't reach the server. Check the internet and try again." : 'Wrong password.';
+        $('pwInput').select();
+      }
+    };
+  });
+}
+
+$('logoutBtn').onclick = () => { forgetKey(); location.reload(); };
+
 (async () => {
-  store.setHostKey(readKey());
-  let ok = false;
-  try { ok = await store.checkHostKey(); } catch (e) { console.error(e); }
-  if (!ok) { $('lock').hidden = false; return; }
+  const ok = await tryKey(readKey()); // local test mode always says yes
+  if (!ok) {
+    if (ok === false) forgetKey(); // wrong/old password; keep it if it was just a network hiccup
+    await askForPassword();
+  }
 
   // ---------- stay in sync ----------
   let listTimer;

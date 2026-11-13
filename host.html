@@ -71,14 +71,25 @@
   #lock { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; text-align: center; padding: 24px; z-index: 50; }
   #lock[hidden] { display: none; }
   #lock p { color: var(--muted); max-width: 420px; line-height: 1.6; }
-  #lock code { color: var(--accent); }
+  #loginForm { width: min(340px, 100%); margin: 0 auto; text-align: start; }
+  #pwInput { display: block; width: 100%; margin-top: 6px; font: inherit; font-size: 17px; color: var(--ink);
+    background: var(--card-2); border: 1px solid #3a4196; border-radius: 10px; padding: 10px 12px; }
+  #pwInput:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #loginErr { color: var(--danger); text-align: center; min-height: 1.6em; margin: 10px auto 0; }
+  header .hdr { display: flex; gap: 8px; flex-wrap: wrap; }
+  header button.logout { font: inherit; color: var(--muted); background: none; border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 999px; cursor: pointer; }
+  header button.logout:hover { color: var(--ink); border-color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>🛰️ Launch Control</h1>
-    <a id="openShow" href="index.html" target="_blank" rel="noopener">Open the big screen ↗</a>
+    <div class="hdr">
+      <a id="openShow" href="index.html" target="_blank" rel="noopener">Open the big screen ↗</a>
+      <button class="logout" id="logoutBtn" type="button">Log out</button>
+    </div>
   </header>
 
   <section>
@@ -137,7 +148,12 @@
   <div>
     <div style="font-size:56px">🔒</div>
     <h1>Host page</h1>
-    <p>This page needs the secret host link. Open the link you saved (it ends with <code>#key=…</code>).</p>
+    <form id="loginForm">
+      <label for="pwInput" style="margin-top:0">Host password</label>
+      <input type="password" id="pwInput" autocomplete="current-password" required>
+      <div class="btns" style="justify-content:center"><button class="btn primary" id="loginBtn" type="submit">Log in</button></div>
+      <p id="loginErr" role="alert"></p>
+    </form>
   </div>
 </div>
 
