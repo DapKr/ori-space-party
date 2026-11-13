@@ -3,8 +3,8 @@ export const config = {
   // Supabase project (from Supabase → Project Settings → API). The anon/publishable key is meant
   // to be public: the database rules in supabase-setup.sql decide what it can do.
   // Leave both empty to run in local test mode (everything stays in this browser).
-  supabaseUrl: '',
-  supabaseKey: '',
+  supabaseUrl: 'https://pssajkczdgxmuyvvklwx.supabase.co',
+  supabaseKey: 'sb_publishable_pE-ns_NsHrN1CcbMSvwmzg_DF3pFaL0',
 
   // Leave empty to use "upload.html" next to the show page.
   uploadUrl: '',
