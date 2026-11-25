@@ -5,6 +5,7 @@
 //   listPhotos()              → [{ id, name, created }] oldest first
 //   getPhoto(id)              → the original photo Blob
 //   deletePhoto(id)           → host only, notifies { type: 'deleted', id }
+//   renamePhoto(id, name)     → host only, notifies { type: 'renamed', id, name }
 //   clearPhotos()             → host only, notifies { type: 'cleared' } (local) or 'deleted' per photo (supabase)
 //   getSettings()             → { title, spotlight, cut }
 //   saveSettings(patch)       → host only, notifies { type: 'settings', settings }
@@ -76,6 +77,13 @@ function makeLocal() {
       await run('readwrite', (s) => s.delete(id));
       emit({ type: 'deleted', id });
     },
+    async renamePhoto(id, name) {
+      const rec = await run('readonly', (s) => s.get(id));
+      if (!rec) return;
+      rec.name = cleanName(name);
+      await run('readwrite', (s) => s.put(rec));
+      emit({ type: 'renamed', id, name: rec.name });
+    },
     async clearPhotos() {
       await run('readwrite', (s) => s.clear());
       emit({ type: 'cleared' });
@@ -125,6 +133,7 @@ function makeSupabase() {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'photos' }, ({ new: r }) => {
         if (r.deleted) notify({ type: 'deleted', id: r.id });
+        else notify({ type: 'renamed', id: r.id, name: r.name || '' });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, ({ new: r }) => {
         if (r && r.data) notify({ type: 'settings', settings: { ...config.defaults, ...r.data } });
@@ -157,6 +166,7 @@ function makeSupabase() {
       return res.blob();
     },
     deletePhoto: (id) => hostOnly('host_delete_photo', { pid: id }),
+    renamePhoto: (id, name) => hostOnly('host_rename_photo', { pid: id, newname: cleanName(name) }),
     clearPhotos: () => hostOnly('host_clear'),
     async getSettings() {
       const c = await client();
@@ -185,6 +195,7 @@ export const addPhoto = (p) => impl.addPhoto(p);
 export const listPhotos = () => impl.listPhotos();
 export const getPhoto = (id) => impl.getPhoto(id);
 export const deletePhoto = (id) => impl.deletePhoto(id);
+export const renamePhoto = (id, name) => impl.renamePhoto(id, name);
 export const clearPhotos = () => impl.clearPhotos();
 export const getSettings = () => impl.getSettings();
 export const saveSettings = (patch) => impl.saveSettings(patch);

@@ -11,7 +11,7 @@ function flash(text) {
   msgTimer = setTimeout(() => $('msg').classList.remove('show'), 1800);
 }
 
-addEventListener('unhandledrejection', (e) => flash('⚠️ ' + (e.reason?.message || 'Something went wrong')));
+addEventListener('unhandledrejection', (e) => flash(e.reason?.message || 'Something went wrong'));
 
 // ---------- big screen settings ----------
 let titleTimer;
@@ -27,43 +27,94 @@ $('titleInput').oninput = (e) => {
 };
 $('spotToggle').onchange = (e) => store.saveSettings({ spotlight: e.target.checked }).then(() => flash('Saved'));
 $('cutToggle').onchange = (e) => store.saveSettings({ cut: e.target.checked }).then(() => flash('Saved'));
-$('spotBtn').onclick = () => store.sendCommand({ name: 'spotlight' }).then(() => flash('🌟 Spotlight sent'));
+$('spotBtn').onclick = () => store.sendCommand({ name: 'spotlight' }).then(() => flash('Spotlight sent to the big screen'));
 
-// ---------- kids list ----------
-const thumbs = new Map(); // id → object URL
+// ---------- photos list ----------
+// Rows are kept and updated in place (not rebuilt), so a name being typed isn't lost when a photo arrives.
+const rows = new Map(); // id → { li, img, input, meta, url, photo }
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+
+function makeRow(p) {
+  const li = document.createElement('li'); li.className = 'photo';
+  const img = new Image(); img.alt = ''; img.loading = 'lazy';
+  const info = document.createElement('div'); info.className = 'info';
+  const input = document.createElement('input');
+  input.className = 'name-input'; input.type = 'text'; input.dir = 'auto'; input.maxLength = 40;
+  input.placeholder = 'Add a name'; input.setAttribute('aria-label', 'Name');
+  const meta = document.createElement('div'); meta.className = 'meta';
+  info.append(input, meta);
+  const actions = document.createElement('div'); actions.className = 'row-actions';
+  const star = document.createElement('button'); star.className = 'btn sm'; star.type = 'button'; star.textContent = 'Spotlight';
+  const del = document.createElement('button'); del.className = 'btn sm danger'; del.type = 'button'; del.textContent = 'Remove';
+  actions.append(star, del);
+  li.append(img, info, actions);
+  const row = { li, img, input, meta, url: null, photo: p };
+
+  // rename: Enter or leaving the field saves, Escape undoes
+  const save = async () => {
+    const name = input.value.trim();
+    if (name === (row.photo.name || '')) return;
+    try {
+      await store.renamePhoto(row.photo.id, name);
+      row.photo.name = name;
+      showMeta(row, 'Saved');
+    } catch (e) {
+      console.error(e);
+      input.value = row.photo.name || '';
+      flash(/host_rename_photo|function/i.test(e.message || '')
+        ? 'Renaming needs a one-time database update (see supabase-update-rename.sql)'
+        : "Couldn't save the name. Check the internet and try again.");
+    }
+  };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { input.value = row.photo.name || ''; input.blur(); }
+  };
+  input.onblur = save;
+  star.onclick = () => store.sendCommand({ name: 'spotlight', id: row.photo.id }).then(() => flash('Spotlight sent to the big screen'));
+  del.onclick = () => {
+    if (confirm(`Remove ${row.photo.name || 'this photo'} from the big screen?`)) store.deletePhoto(row.photo.id).then(() => flash('Photo removed'));
+  };
+  return row;
+}
+
+function showMeta(row, note) {
+  row.meta.replaceChildren(document.createTextNode('Added ' + timeFmt.format(row.photo.created)));
+  if (note) {
+    const s = document.createElement('span'); s.className = 'saved'; s.textContent = ' · ' + note;
+    row.meta.appendChild(s);
+    setTimeout(() => { if (s.isConnected) s.remove(); }, 2000);
+  }
+}
+
 async function renderList() {
   const photos = await store.listPhotos();
   $('count').textContent = photos.length;
-  const list = $('list');
-  list.replaceChildren();
-  if (!photos.length) {
-    const p = document.createElement('p'); p.className = 'none'; p.textContent = 'No photos yet.';
-    list.appendChild(p);
-  }
-  const ids = new Set(photos.map((p) => p.id));
-  for (const [id, url] of thumbs) if (!ids.has(id)) { URL.revokeObjectURL(url); thumbs.delete(id); }
+  const list = $('list'), ids = new Set(photos.map((p) => p.id));
+  for (const [id, row] of rows) if (!ids.has(id)) { row.li.remove(); if (row.url) URL.revokeObjectURL(row.url); rows.delete(id); }
 
+  let prev = null;
   for (const p of [...photos].reverse()) { // newest first
-    const li = document.createElement('li');
-    const img = new Image(); img.alt = '';
-    if (!thumbs.has(p.id)) {
-      const blob = await store.getPhoto(p.id);
-      if (blob) thumbs.set(p.id, URL.createObjectURL(blob));
+    let row = rows.get(p.id);
+    if (!row) {
+      row = makeRow(p); rows.set(p.id, row);
+      store.getPhoto(p.id).then((blob) => { if (blob && rows.get(p.id) === row) { row.url = URL.createObjectURL(blob); row.img.src = row.url; } });
     }
-    img.src = thumbs.get(p.id) || '';
-    const name = document.createElement('span'); name.className = 'name'; name.textContent = p.name || '—';
-    const row = document.createElement('div'); row.className = 'row';
-    const star = document.createElement('button'); star.className = 'btn small'; star.textContent = '🌟'; star.title = 'Spotlight';
-    star.onclick = () => store.sendCommand({ name: 'spotlight', id: p.id }).then(() => flash('🌟 Spotlight sent'));
-    const del = document.createElement('button'); del.className = 'btn small danger'; del.textContent = 'Remove';
-    del.onclick = () => { if (confirm(`Remove ${p.name || 'this photo'} from the screen?`)) store.deletePhoto(p.id); };
-    row.append(star, del);
-    li.append(img, name, row);
-    list.appendChild(li);
+    row.photo = { ...row.photo, ...p };
+    if (document.activeElement !== row.input) row.input.value = p.name || '';
+    showMeta(row);
+    const want = prev ? prev.nextSibling : list.firstChild;
+    if (row.li !== want) list.insertBefore(row.li, want);
+    prev = row.li;
+  }
+  list.querySelector('.empty')?.remove();
+  if (!photos.length) {
+    const e = document.createElement('li'); e.className = 'empty'; e.textContent = 'No photos yet. They appear here as guests send them.';
+    list.appendChild(e);
   }
 }
 $('clearBtn').onclick = async () => {
-  if (!confirm('Remove ALL photos from the screen and from storage? This cannot be undone.')) return;
+  if (!confirm('Remove ALL photos from the big screen and from storage? This cannot be undone.')) return;
   await store.clearPhotos();
   flash('All photos removed');
 };
@@ -75,9 +126,9 @@ $('fileInput').onchange = async (e) => {
   e.target.value = '';
   $('nameInput').value = '';
   for (const f of files) {
-    try { await store.addPhoto({ name, blob: f }); } catch (err) { console.error(err); flash('⚠️ Could not save the photo'); }
+    try { await store.addPhoto({ name, blob: f }); } catch (err) { console.error(err); flash('Could not save the photo'); }
   }
-  if (files.length) flash('🚀 Sent to the big screen');
+  if (files.length) flash(files.length > 1 ? files.length + ' photos sent to the big screen' : 'Photo sent to the big screen');
 };
 
 // ---------- QR code for the sign ----------
@@ -85,8 +136,8 @@ const uploadUrl = config.uploadUrl || new URL('upload.html', location.href).href
 $('uploadLink').value = uploadUrl;
 $('openUpload').href = uploadUrl;
 $('qrNote').textContent = /^(http:\/\/)?(localhost|127\.0\.0\.1)/.test(uploadUrl) || location.protocol === 'file:'
-  ? '⚠️ This is a local test link, so phones cannot open it. Download the QR for printing only after we go live: the final link is what goes on the sign.'
-  : 'Black on white scans best. Keep a white margin around it on the sign, and print it at least 4 cm wide.';
+  ? "This is a local test link, so phones can't open it. Download the QR for printing only once the site is live."
+  : 'For the sign: print it at least 4 cm wide, with a white margin around it.';
 $('copyLink').onclick = async () => {
   try { await navigator.clipboard.writeText(uploadUrl); flash('Link copied'); } catch { $('uploadLink').select(); }
 };
@@ -188,7 +239,7 @@ $('logoutBtn').onclick = () => { forgetKey(); location.reload(); };
   const refreshList = () => { clearTimeout(listTimer); listTimer = setTimeout(renderList, 250); };
   store.onChange((ev) => {
     if (ev.type === 'settings') loadSettings();
-    else if (ev.type === 'added' || ev.type === 'deleted' || ev.type === 'cleared') refreshList();
+    else if (['added', 'deleted', 'cleared', 'renamed'].includes(ev.type)) refreshList();
   });
   loadSettings();
   renderList();

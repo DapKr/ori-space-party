@@ -600,6 +600,10 @@ function applySettings(s) {
 store.onChange((ev) => {
   if (ev.type === 'added') queuePhoto({ id: ev.id, name: ev.name }, true);
   else if (ev.type === 'deleted') forget(ev.id);
+  else if (ev.type === 'renamed') { // the host fixed a name: the next spotlight uses it
+    const s = sprites.find((x) => x.id === ev.id);
+    if (s) { s.name = ev.name || ''; const img = s.el.querySelector('img'); if (img) img.alt = s.name || 'space explorer'; }
+  }
   else if (ev.type === 'cleared') { for (const id of [...known]) forget(id); featureQueue.length = 0; cache.clear(); }
   else if (ev.type === 'settings') applySettings(ev.settings);
   else if (ev.type === 'command' && ev.name === 'spotlight') {
