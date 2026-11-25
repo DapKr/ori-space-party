@@ -1,6 +1,7 @@
 // Projector "show" page: space scene, floating kids, cut-out processing, host menu.
 import { config } from './config.js';
 import * as store from './store.js';
+import { cutRocket, lastMiss as rocketMiss } from './rocket.js';
 
 // ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -10,6 +11,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const easeOutBack = (t) => { const c = 1.7; t -= 1; return 1 + (c + 1) * t * t * t + c * t * t; };
 
 // ---------- cut-out cache (this laptop only, so a reload doesn't re-cut everyone) ----------
+const CUT_VERSION = 3; // bump when the cutting changes, so photos cut the old way get cut again
 const cacheDb = new Promise((res) => {
   try {
     const r = indexedDB.open('ori-space-show', 1);
@@ -368,7 +370,13 @@ async function runJobs() {
       if (!original) { known.delete(meta.id); continue; }
       let out = await prepare(original);
       let cut = false;
-      if (settings.cut) {
+      // Kids posing in Ori's rocket: cut out exactly the rocket (faces in the windows), nothing around it.
+      const rocket = settings.cut ? await cutRocket(out).catch((e) => { console.warn(e); return null; }) : null;
+      if (rocket) {
+        out = rocket;
+        cut = true;
+      } else if (settings.cut) {
+        console.info('No rocket found, using general background removal:', rocketMiss);
         const lib = await loadLib();
         const seen = {};
         out = await lib.removeBackground(out, {
@@ -388,7 +396,7 @@ async function runJobs() {
         cut = true;
       }
       if (!known.has(meta.id)) continue;
-      await cache.put({ id: meta.id, blob: out, cut });
+      await cache.put({ id: meta.id, blob: out, cut, v: CUT_VERSION });
       setToast('שוגר! 🚀', 1);
       await addSprite({ id: meta.id, name: meta.name, blob: out }, feature);
     } catch (err) {
@@ -472,7 +480,7 @@ async function sync(first) {
     for (const meta of photos) {
       if (known.has(meta.id)) continue;
       const hit = first ? await cache.get(meta.id) : null;
-      if (hit) { known.add(meta.id); await addSprite({ id: meta.id, name: meta.name, blob: hit.blob }, false); }
+      if (hit && hit.v === CUT_VERSION) { known.add(meta.id); await addSprite({ id: meta.id, name: meta.name, blob: hit.blob }, false); }
       else queuePhoto(meta, true);
     }
     for (const id of [...known]) if (!ids.has(id)) forget(id);
