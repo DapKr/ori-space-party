@@ -160,17 +160,28 @@ function baseHeight() {
 async function addSprite({ id, name, blob, nozzle }, feature) {
   if (sprites.some((s) => s.id === id)) return;
   const url = URL.createObjectURL(blob);
-  const el = new Image();
-  el.className = 'kid';
-  el.alt = name || 'space explorer';
-  el.draggable = false;
-  el.src = url;
-  try { await el.decode(); } catch {}
+  const img = new Image();
+  img.alt = name || 'space explorer';
+  img.draggable = false;
+  img.src = url;
+  try { await img.decode(); } catch {}
   if (!known.has(id)) { URL.revokeObjectURL(url); return; } // deleted while loading
-  const aspect = (el.naturalWidth || 1) / (el.naturalHeight || 1);
+  const aspect = (img.naturalWidth || 1) / (img.naturalHeight || 1);
+  // the sprite: a box that moves and turns, holding the flame (rockets) and the picture on top of it
+  const el = document.createElement('div');
+  el.className = 'kid';
+  let fctx = null;
+  if (nozzle) {
+    const box = flameBox(nozzle), cv = document.createElement('canvas');
+    cv.width = FLAME_RES; cv.height = Math.max(1, Math.round(FLAME_RES * box.height / (box.width * aspect)));
+    Object.assign(cv.style, { left: box.left * 100 + '%', top: box.top * 100 + '%', width: box.width * 100 + '%', height: box.height * 100 + '%' });
+    el.appendChild(cv);
+    fctx = cv.getContext('2d');
+  }
+  el.appendChild(img);
   const ang = rand(0, Math.PI * 2);
   const sp = rand(28, 50) * (H / 1080);
-  const s = { id, name: name || '', url, el, aspect, nozzle: nozzle || null, // nozzle: a rocket, with a flame
+  const s = { id, name: name || '', url, el, aspect, fctx, nozzle: nozzle || null, // nozzle: a rocket, with a flame
     x: feature ? W / 2 : rand(W * 0.2, W * 0.8), y: feature ? H / 2 : rand(H * 0.25, H * 0.8),
     vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
     ph: rand(0, 6.28), rs: rand(0.35, 0.7), born: performance.now(), emit: 0, hue: rand(0, 360) };
@@ -313,7 +324,16 @@ function animateKids(dt, now) {
 }
 
 // ---------- cartoon rocket flames (behind each rocket, out of its yellow base) ----------
-const flameLen = (s, t) => s.geo.h * 0.19 * (1 + 0.1 * Math.sin(t * 5 + s.ph) + 0.06 * Math.sin(t * 9 + s.ph * 2));
+// Each rocket has its own flame canvas inside its sprite, just behind the picture, so the flame moves,
+// turns and stacks together with its own rocket (another rocket passing in front covers both).
+const flameFrac = (s, t) => 0.19 * (1 + 0.1 * Math.sin(t * 5 + s.ph) + 0.06 * Math.sin(t * 9 + s.ph * 2)); // × height
+const flameLen = (s, t) => s.geo.h * flameFrac(s, t);
+// the flame canvas's box inside the sprite, as fractions of the sprite's width / height
+const FLAME_UP = 0.13, FLAME_DOWN = 0.28, FLAME_RES = 280; // above / below the flame's start; canvas pixels wide
+function flameBox(nz) {
+  const bw = nz.w * 0.6 * 2.4, y0 = nz.y - 0.03; // the flame starts just inside the base
+  return { left: nz.x - bw / 2, top: y0 - FLAME_UP, width: bw, height: FLAME_UP + FLAME_DOWN };
+}
 
 // one flame tongue pointing down from (0,0): rounded top, bulging sides, a tip that sways
 function tongue(g, w, len, sway) {
@@ -337,14 +357,17 @@ function flameTip(s, t) {
 function drawFlames(now) {
   const t = now / 1000;
   for (const s of sprites) {
-    if (!s.nozzle || !s.geo || !s.geo.h) continue;
-    const { a, ox, oy } = flameFrame(s), fw = s.nozzle.w * s.geo.w * 0.6, len = flameLen(s, t);
+    if (!s.fctx) continue;
+    const ctx = s.fctx, cv = ctx.canvas, box = flameBox(s.nozzle);
+    // canvas units: U pixels per sprite width, U / aspect per sprite height
+    const U = cv.width / box.width, Uh = U / s.aspect;
+    const fw = s.nozzle.w * 0.6 * U, len = flameFrac(s, t) * Uh;
     const sway = (k) => Math.sin(t * (3.5 + k * 0.7) + s.ph * (k + 1)) * fw * 0.1;
-    if (!(fw > 1 && len > 1)) continue;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.save();
     try {
-    ctx.globalAlpha = s.geo.opacity;
-    ctx.translate(ox, oy); ctx.rotate(a);
+    ctx.translate(cv.width / 2, FLAME_UP * Uh);
     // soft glow
     ctx.globalCompositeOperation = 'lighter';
     const glow = ctx.createRadialGradient(0, len * 0.35, 0, 0, len * 0.35, len * 0.9);
@@ -367,7 +390,7 @@ function drawFlames(now) {
     [['#ff9d00', 0.72, 0.78], ['#ffd93b', 0.46, 0.56], ['#fff6d0', 0.22, 0.32]].forEach(([c, kw, kl], i) => {
       ctx.fillStyle = c; ctx.beginPath(); tongue(ctx, fw * kw, len * kl * (1 + 0.06 * Math.sin(t * (7 + i * 1.5) + s.ph)), sway(i + 3) * kw); ctx.fill();
     });
-    } finally { ctx.restore(); } // never leave the sky's drawing state shifted, even after an error
+    } finally { ctx.restore(); }
   }
 }
 
