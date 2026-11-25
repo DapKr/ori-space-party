@@ -343,7 +343,10 @@ export async function cutRocket(blob, { debug = false } = {}) {
   const ref = { white: sample(T.whiteSpots), red: sample(T.redSpots), blue: sample(T.blueSpots) };
   const tOutline = [...T.nose, ...T.bodyRight, ...T.bodyBottom, ...T.bodyLeft, ...T.noseLeft];
   const kinds = [...T.nose.map(() => 'red'), ...T.bodyRight.map(() => 'white'), 'fixed', 'fixed', ...T.bodyLeft.map(() => 'white'), ...T.noseLeft.map(() => 'red')];
+  // each segment takes the kind of the point it starts from, so fix up the segments that change part:
+  kinds[T.nose.length - 1] = 'white'; // nose's right corner → down the body
   kinds[T.nose.length + T.bodyRight.length - 1] = 'fixed'; // body's bottom-right corner → bottom edge
+  kinds[T.nose.length + T.bodyRight.length + T.bodyBottom.length + T.bodyLeft.length - 1] = 'red'; // body's top-left → up the nose
   const pts = resample(tOutline, kinds, 14).map((o) => ({ ...o, q: map(o.p) }));
   for (const o of pts) if (o.kind === 'white' && o.p[1] > 1075 && o.p[1] < 1188) o.kind = 'blue'; // edge of the stripe
   const dist = (x, y, c) => {
@@ -365,7 +368,10 @@ export async function cutRocket(blob, { debug = false } = {}) {
       let inside = 0, outside = 0;
       for (let t = 2; t <= 5; t++) {
         inside += dist(o.q[0] + (d - t) * nx, o.q[1] + (d - t) * ny, c);
-        outside += dist(o.q[0] + (d + t) * nx, o.q[1] + (d + t) * ny, c);
+        // for the body, red beyond the edge is the nose (still rocket), not the room: otherwise the body's
+        // edge just under the nose snaps inward onto the nose's bottom line and leaves a dent
+        const ox = o.q[0] + (d + t) * nx, oy = o.q[1] + (d + t) * ny;
+        outside += o.kind === 'red' ? dist(ox, oy, c) : Math.min(dist(ox, oy, c), dist(ox, oy, ref.red));
       }
       // moving out costs more than moving in: a sliver of room looks worse than a sliver less rocket
       const score = (outside - inside) / 4 - (d > 0 ? 0.3 : 0.12) * Math.abs(d) / R;
@@ -430,5 +436,5 @@ export async function cutRocket(blob, { debug = false } = {}) {
   bmp.close?.();
   const result = await toBlob(out);
   if (!debug) return result;
-  return { blob: result, k, debug: { used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
+  return { blob: result, k, origin: [x0, y0], debug: { offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
 }
