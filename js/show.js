@@ -157,14 +157,15 @@ function baseHeight() {
   return H * Math.min(0.42, 0.95 / Math.sqrt(n + 0.8));
 }
 
-// A white cartoon outline around the cut-out (like a sticker), as thick as OUTLINE × the picture's size.
+// A light cartoon outline around the cut-out (like a sticker), as thick as OUTLINE × the picture's size.
 const OUTLINE = 0.006;
+const OUTLINE_COLOR = '#bdb4f2'; // soft lavender: white tinted towards the sky's blue-purple
 async function outlined(blob, nozzle) {
   const bmp = await createImageBitmap(blob);
   const w = bmp.width, h = bmp.height, r = Math.max(2, Math.round(Math.max(w, h) * OUTLINE)), pad = r + 2;
   const sil = document.createElement('canvas'); sil.width = w; sil.height = h;
   const sg = sil.getContext('2d');
-  sg.drawImage(bmp, 0, 0); sg.globalCompositeOperation = 'source-in'; sg.fillStyle = '#fff'; sg.fillRect(0, 0, w, h);
+  sg.drawImage(bmp, 0, 0); sg.globalCompositeOperation = 'source-in'; sg.fillStyle = OUTLINE_COLOR; sg.fillRect(0, 0, w, h);
   const c = document.createElement('canvas'); c.width = w + 2 * pad; c.height = h + 2 * pad;
   const g = c.getContext('2d');
   for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; g.drawImage(sil, pad + Math.cos(a) * r, pad + Math.sin(a) * r); }
