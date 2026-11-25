@@ -154,7 +154,7 @@ let settings = { ...config.defaults }; // replaced by the saved host settings on
 
 function baseHeight() {
   const n = Math.max(1, sprites.length);
-  return H * Math.min(0.42, 0.95 / Math.sqrt(n + 0.8));
+  return H * Math.min(0.42, 0.8 / Math.sqrt(n + 0.8)); // smaller as more join, so they have room to spread out
 }
 
 // ---------- spotlight banner lines (gender-neutral, so they fit any kid; {n} = the kid's name) ----------
@@ -202,6 +202,36 @@ function line(list, name) { // a random line, never the same one twice in a row
   return l.replace(/([למב])\{n\}/, (m, p) => p + (hebrew ? '' : '-') + name).replace('{n}', name || '');
 }
 
+// a rocket's next destination: of a handful of random spots on screen (not too close to where it is),
+// the one furthest from the other sprites and from where the other rockets are heading
+function pickDestination(s, mx, my) {
+  let best = null, bestD = -1;
+  const far = Math.min(W, H) * 0.3;
+  for (let i = 0; i < 24; i++) {
+    const p = [rand(mx, W - mx), rand(my, H - my)];
+    if (Math.hypot(p[0] - s.x, p[1] - s.y) < far && i < 20) continue;
+    let d = Infinity;
+    for (const o of sprites) {
+      if (o === s) continue;
+      d = Math.min(d, Math.hypot(o.x - p[0], o.y - p[1]));
+      if (o.dest) d = Math.min(d, Math.hypot(o.dest[0] - p[0], o.dest[1] - p[1]));
+    }
+    if (d > bestD) { bestD = d; best = p; }
+  }
+  return best || [W / 2, H / 2];
+}
+
+// of a handful of random spots, the one furthest from every sprite already on screen
+function emptiestSpot() {
+  let best = [W / 2, H / 2], bestD = -1;
+  for (let i = 0; i < 24; i++) {
+    const p = [rand(W * 0.15, W * 0.85), rand(H * 0.2, H * 0.8)];
+    const d = Math.min(Infinity, ...sprites.map((o) => Math.hypot(o.x - p[0], o.y - p[1])));
+    if (d > bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
 async function addSprite({ id, name, blob, nozzle }, feature) {
   if (sprites.some((s) => s.id === id)) return;
   const url = URL.createObjectURL(blob);
@@ -226,8 +256,9 @@ async function addSprite({ id, name, blob, nozzle }, feature) {
   el.appendChild(img);
   const ang = rand(0, Math.PI * 2);
   const sp = rand(28, 50) * (H / 1080);
+  const [sx, sy] = emptiestSpot(); // start where there's room (a featured one flies to the middle from there)
   const s = { id, name: name || '', url, el, aspect, fctx, nozzle: nozzle || null, // nozzle: a rocket, with a flame
-    x: feature ? W / 2 : rand(W * 0.2, W * 0.8), y: feature ? H / 2 : rand(H * 0.25, H * 0.8),
+    x: sx, y: sy,
     vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
     ph: rand(0, 6.28), rs: rand(0.35, 0.7), born: performance.now(), emit: 0, hue: rand(0, 360) };
   sprites.push(s);
@@ -294,17 +325,26 @@ function animateKids(dt, now) {
     let h = base, w = h * s.aspect;
     if (w > base * 1.3) { w = base * 1.3; h = w / s.aspect; }
     // rockets turn to point anywhere, so keep their whole length (and flame) on screen whichever way they face
-    const reach = s.nozzle ? h * 0.65 : 0;
+    const reach = s.nozzle ? h * 0.55 : 0;
     const minX = Math.min(Math.max(w / 2, reach), W / 2), minY = Math.min(Math.max(h / 2, reach), H / 2);
     if (s.nozzle) {
-      // Rockets steer instead of bouncing: near an edge they pick a direction away from it and turn
-      // towards it gradually, so they fly a smooth curve with the nose following.
-      const zone = Math.min(W, H) * 0.15;
-      if (s.tvx == null) { s.tvx = s.vx; s.tvy = s.vy; }
-      if (s.x < minX + zone && s.tvx < 0) s.tvx = -s.tvx;
-      if (s.x > W - minX - zone && s.tvx > 0) s.tvx = -s.tvx;
-      if (s.y < minY + zone && s.tvy < 0) s.tvy = -s.tvy;
-      if (s.y > H - minY - zone && s.tvy > 0) s.tvy = -s.tvy;
+      // Rockets fly towards a destination in the emptiest part of the screen (away from the other rockets
+      // and from where they're heading), then pick a new one, so they keep spreading out. They turn
+      // gradually, flying smooth curves with the nose following.
+      const m = Math.min(W, H);
+      if (!s.dest || Math.hypot(s.dest[0] - s.x, s.dest[1] - s.y) < m * 0.12 || now > s.destUntil) {
+        s.dest = pickDestination(s, minX, minY); s.destUntil = now + rand(8000, 13000);
+      }
+      let ax = s.dest[0] - s.x, ay = s.dest[1] - s.y;
+      const dl = Math.hypot(ax, ay) || 1; ax /= dl; ay /= dl;
+      // personal space: when passing close to another rocket, veer away from it
+      const R = h * 1.6;
+      for (const o of sprites) {
+        if (o === s || (featured && featured.s === o)) continue;
+        const dx = s.x - o.x, dy = s.y - o.y, d = Math.hypot(dx, dy);
+        if (d < R && d > 0.01) { const f = (1 - d / R) * 1.5; ax += (dx / d) * f; ay += (dy / d) * f; }
+      }
+      s.tvx = ax; s.tvy = ay;
       const cur = Math.atan2(s.vy, s.vx), d = ((Math.atan2(s.tvy, s.tvx) - cur + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
       const na = cur + Math.sign(d) * Math.min(Math.abs(d), ROCKET_TURN * dt), sp = Math.hypot(s.vx, s.vy);
       s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp;
