@@ -259,15 +259,24 @@ function animateKids(dt, now) {
     let h = base, w = h * s.aspect;
     if (w > base * 1.3) { w = base * 1.3; h = w / s.aspect; }
     s.x += s.vx * dt; s.y += s.vy * dt;
-    const minX = Math.min(w / 2, W / 2), minY = Math.min(h / 2, H / 2);
+    // rockets turn to point anywhere, so keep their whole length (and flame) on screen whichever way they face
+    const reach = s.nozzle ? h * 0.65 : 0;
+    const minX = Math.min(Math.max(w / 2, reach), W / 2), minY = Math.min(Math.max(h / 2, reach), H / 2);
     if (s.x < minX) { s.x = minX; s.vx = Math.abs(s.vx); }
     if (s.x > W - minX) { s.x = W - minX; s.vx = -Math.abs(s.vx); }
     if (s.y < minY) { s.y = minY; s.vy = Math.abs(s.vy); }
-    const minBottom = Math.min(H / 2, minY + (s.nozzle ? h * 0.22 : 0)); // rockets: room for the flame
-    if (s.y > H - minBottom) { s.y = H - minBottom; s.vy = -Math.abs(s.vy); }
+    if (s.y > H - minY) { s.y = H - minY; s.vy = -Math.abs(s.vy); }
 
     let x = s.x, y = s.y + Math.sin(t * 0.9 + s.ph) * h * 0.03;
     let rot = Math.sin(t * s.rs + s.ph) * 8;
+    if (s.nozzle) {
+      // a rocket points its nose where it's flying, turning smoothly (e.g. after bouncing off an edge)
+      const target = Math.atan2(s.vx, -s.vy) * 180 / Math.PI;
+      if (s.heading == null) s.heading = target;
+      const diff = ((target - s.heading + 540) % 360) - 180;
+      s.heading = ((s.heading + diff * Math.min(1, dt * 4) + 540) % 360) - 180; // kept in -180..180
+      rot = s.heading + Math.sin(t * s.rs + s.ph) * 4;
+    }
     let opacity = 1;
     const pop = easeOutBack(Math.min(1, (now - s.born) / 900));
 
