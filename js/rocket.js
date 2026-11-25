@@ -146,6 +146,27 @@ function rowEnds(lab, w, ids, comps) {
   return pts;
 }
 
+// straight line y = a + b·x along the lowest pixel of each column of the given components,
+// refitted once without the columns that stray from it (e.g. where a leg covers the strip)
+function bottomLine(lab, w, ids, comps) {
+  const x0 = Math.min(...comps.map((c) => c.x0)), x1 = Math.max(...comps.map((c) => c.x1));
+  const y0 = Math.min(...comps.map((c) => c.y0)), y1 = Math.max(...comps.map((c) => c.y1));
+  let pts = [];
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y1; y >= y0; y--) if (ids.has(lab[y * w + x])) { pts.push([x, y]); break; }
+  }
+  const fitL = (p) => {
+    const n = p.length, mx = p.reduce((s, q) => s + q[0], 0) / n, my = p.reduce((s, q) => s + q[1], 0) / n;
+    let num = 0, den = 0; for (const [x, y] of p) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
+    const b = den ? num / den : 0; return { a: my - b * mx, b };
+  };
+  if (pts.length < 10) return null;
+  let L = fitL(pts);
+  pts = pts.filter(([x, y]) => Math.abs(y - (L.a + L.b * x)) < 3);
+  if (pts.length < 10) return null;
+  return fitL(pts);
+}
+
 // convex hull (monotone chain)
 function hull(pts) {
   if (pts.length < 3) return [];
@@ -397,10 +418,33 @@ export async function cutRocket(blob, { debug = false } = {}) {
   for (let i = 0; i < N; i++) if (!partsOut[i]) partsMask[i] = 1;
   // The base is in shadow, so only some of its glitter reads as yellow: a speckled mask that would come
   // out see-through. It's a straight strip, so fill the convex hull of what was found instead.
-  const bc = components(close(basePx, w, h, 3), w, h, N * 0.0004);
+  // The legs split it, so the ends beyond each leg are separate small pieces: keep any piece at the
+  // same height as the main strip.
+  const bc = components(close(basePx, w, h, 3), w, h, N * 0.00008);
+  if (bc.comps.length) {
+    const main = bc.comps.reduce((a, b) => (b.area > a.area ? b : a)), bh = main.y1 - main.y0;
+    bc.comps = bc.comps.filter((c) => c === main ||
+      (c.area >= main.area * 0.02 && c.cy > main.y0 - 0.5 * bh && c.cy < main.y1 + 0.5 * bh));
+  }
   // its top corners meet the board, so the template knows them well: they close any gap to the body
-  const baseHull = bc.comps.length
-    ? hull([...rowEnds(bc.lab, w, new Set(bc.comps.map((c) => c.id)), bc.comps), map(T.base[0]), map(T.base[1]), map([520, 1625]), map([980, 1625])]) : []; // overlap the body a little: no seam
+  let baseHull = [];
+  if (bc.comps.length) {
+    const ids = new Set(bc.comps.map((c) => c.id));
+    const tl = map(T.base[0]), tr = map(T.base[1]);
+    const pts = [...rowEnds(bc.lab, w, ids, bc.comps), tl, tr, map([520, 1625]), map([980, 1625])]; // overlap the body: no seam
+    // the strip's ends are often in shadow: run its sides straight down from the top corners
+    // to a line fitted along the bottom of the yellow that was found
+    const bottom = bottomLine(bc.lab, w, ids, bc.comps);
+    if (bottom) {
+      const a = map([750, 1600]), b = map([750, 1700]), l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const dn = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+      for (const p of [tl, tr]) {
+        const t = (bottom.a + bottom.b * p[0] - p[1]) / (dn[1] - bottom.b * dn[0]);
+        if (t > 0 && t < 0.3 * ws) pts.push([p[0] + t * dn[0], p[1] + t * dn[1]]);
+      }
+    }
+    baseHull = hull(pts);
+  }
 
   // 5. build the full-size cut-out
   const sc = 1 / k;
@@ -436,5 +480,5 @@ export async function cutRocket(blob, { debug = false } = {}) {
   bmp.close?.();
   const result = await toBlob(out);
   if (!debug) return result;
-  return { blob: result, k, origin: [x0, y0], debug: { offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
+  return { blob: result, k, origin: [x0, y0], debug: { baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
 }
