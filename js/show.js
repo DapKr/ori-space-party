@@ -240,7 +240,7 @@ function animateKids(dt, now) {
     if (s.x < minX) { s.x = minX; s.vx = Math.abs(s.vx); }
     if (s.x > W - minX) { s.x = W - minX; s.vx = -Math.abs(s.vx); }
     if (s.y < minY) { s.y = minY; s.vy = Math.abs(s.vy); }
-    const minBottom = Math.min(H / 2, minY + (s.nozzle ? h * 0.32 : 0)); // rockets: room for the flame
+    const minBottom = Math.min(H / 2, minY + (s.nozzle ? h * 0.22 : 0)); // rockets: room for the flame
     if (s.y > H - minBottom) { s.y = H - minBottom; s.vy = -Math.abs(s.vy); }
 
     let x = s.x, y = s.y + Math.sin(t * 0.9 + s.ph) * h * 0.03;
@@ -267,12 +267,12 @@ function animateKids(dt, now) {
 
     s.emit += dt;
     if (s.nozzle) { // rocket: a few sparks flying off the flame's tip (the flame itself is drawn in drawFlames)
-      while (s.emit > 0.08 && particles.length < 700) {
-        s.emit -= 0.08;
+      while (s.emit > 0.16 && particles.length < 700) {
+        s.emit -= 0.16;
         const a = rot * Math.PI / 180, tip = flameTip(s, t);
-        const dir = a + Math.PI / 2 + rand(-0.5, 0.5), v = rand(40, 110) * (h / 500 + 0.4);
+        const dir = a + Math.PI / 2 + rand(-0.5, 0.5), v = rand(20, 55) * (h / 500 + 0.4);
         particles.push({ x: tip[0], y: tip[1], vx: Math.cos(dir) * v, vy: Math.sin(dir) * v,
-          r: rand(1.2, 2.6) * (h / 400 + 0.5), life: 0.7, max: 0.7, hue: rand(20, 50) });
+          r: rand(1, 2) * (h / 400 + 0.5), life: 0.9, max: 0.9, hue: rand(20, 50) });
       }
       continue;
     }
@@ -288,7 +288,7 @@ function animateKids(dt, now) {
 }
 
 // ---------- cartoon rocket flames (behind each rocket, out of its yellow base) ----------
-const flameLen = (s, t) => s.geo.h * 0.3 * (1 + 0.12 * Math.sin(t * 13 + s.ph) + 0.07 * Math.sin(t * 23 + s.ph * 2));
+const flameLen = (s, t) => s.geo.h * 0.19 * (1 + 0.1 * Math.sin(t * 5 + s.ph) + 0.06 * Math.sin(t * 9 + s.ph * 2));
 
 // one flame tongue pointing down from (0,0): rounded top, bulging sides, a tip that sways
 function tongue(g, w, len, sway) {
@@ -313,8 +313,8 @@ function drawFlames(now) {
   const t = now / 1000;
   for (const s of sprites) {
     if (!s.nozzle || !s.geo || !s.geo.h) continue;
-    const { a, ox, oy } = flameFrame(s), fw = s.nozzle.w * s.geo.w * 0.82, len = flameLen(s, t);
-    const sway = (k) => Math.sin(t * (9 + k) + s.ph * (k + 1)) * fw * 0.1;
+    const { a, ox, oy } = flameFrame(s), fw = s.nozzle.w * s.geo.w * 0.6, len = flameLen(s, t);
+    const sway = (k) => Math.sin(t * (3.5 + k * 0.7) + s.ph * (k + 1)) * fw * 0.1;
     if (!(fw > 1 && len > 1)) continue;
     ctx.save();
     try {
@@ -330,15 +330,15 @@ function drawFlames(now) {
     const outer = () => {
       ctx.beginPath();
       tongue(ctx, fw, len, sway(0));
-      ctx.save(); ctx.translate(-fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 17 + s.ph)), sway(1)); ctx.restore();
-      ctx.save(); ctx.translate(fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 15 + s.ph * 3)), sway(2)); ctx.restore();
+      ctx.save(); ctx.translate(-fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 6.5 + s.ph)), sway(1)); ctx.restore();
+      ctx.save(); ctx.translate(fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 5.5 + s.ph * 3)), sway(2)); ctx.restore();
     };
     ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, fw * 0.06); ctx.strokeStyle = '#b8280f';
     outer(); ctx.stroke();
     ctx.fillStyle = '#ff5a1f'; outer(); ctx.fill();
     // inner layers, each a smaller flickering tongue
     [['#ff9d00', 0.72, 0.78], ['#ffd93b', 0.46, 0.56], ['#fff6d0', 0.22, 0.32]].forEach(([c, kw, kl], i) => {
-      ctx.fillStyle = c; ctx.beginPath(); tongue(ctx, fw * kw, len * kl * (1 + 0.06 * Math.sin(t * (19 + i * 4) + s.ph)), sway(i + 3) * kw); ctx.fill();
+      ctx.fillStyle = c; ctx.beginPath(); tongue(ctx, fw * kw, len * kl * (1 + 0.06 * Math.sin(t * (7 + i * 1.5) + s.ph)), sway(i + 3) * kw); ctx.fill();
     });
     } finally { ctx.restore(); } // never leave the sky's drawing state shifted, even after an error
   }
