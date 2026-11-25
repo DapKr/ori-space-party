@@ -69,11 +69,13 @@
     box-shadow: 0 8px 28px rgba(255, 204, 51, .35); cursor: pointer; }
   .send:disabled { opacity: .45; box-shadow: none; cursor: default; }
 
-  .status { margin-top: 14px; text-align: center; font-size: 16px; min-height: 1.4em; color: var(--muted); }
+  .status { margin-top: 16px; text-align: center; font-size: 16px; min-height: 1.4em; color: var(--muted); }
   .status.err { color: var(--danger); }
   .status.warn { color: #ffd98a; line-height: 1.5; }
-  .anyway { display: none; margin: 10px auto 0; font: inherit; font-size: 15px; color: var(--muted); background: none;
-    border: 0; text-decoration: underline; cursor: pointer; padding: 6px 10px; }
+  /* looks like a small link, but has a big (invisible) tap area: at least 48px, for fingers */
+  .anyway { display: none; position: relative; z-index: 1; margin: 2px auto 0; min-height: 48px; min-width: 160px;
+    font: inherit; font-size: 15px; color: var(--muted); background: none; border: 0; text-decoration: underline;
+    cursor: pointer; padding: 14px 24px; touch-action: manipulation; }
   .no-rocket .anyway { display: block; }
 
   .done { display: none; text-align: center; padding: 26px 10px; }
@@ -110,8 +112,8 @@
         <input type="text" id="name" maxlength="30" autocomplete="off" placeholder="למשל: נועה">
       </label>
 
-      <button class="send" id="send" type="button" disabled>🚀 שיגור לחלל!</button>
       <div class="status" id="status" role="status" aria-live="polite"></div>
+      <button class="send" id="send" type="button" disabled>🚀 שיגור לחלל!</button>
       <button class="anyway" id="anyway" type="button">לשלוח בכל זאת</button>
     </div>
 
