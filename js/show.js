@@ -158,10 +158,10 @@ function baseHeight() {
 }
 
 // A white cartoon outline around the cut-out (like a sticker), as thick as OUTLINE × the picture's size.
-const OUTLINE = 0.02;
+const OUTLINE = 0.006;
 async function outlined(blob, nozzle) {
   const bmp = await createImageBitmap(blob);
-  const w = bmp.width, h = bmp.height, r = Math.max(3, Math.round(Math.max(w, h) * OUTLINE)), pad = r + 2;
+  const w = bmp.width, h = bmp.height, r = Math.max(2, Math.round(Math.max(w, h) * OUTLINE)), pad = r + 2;
   const sil = document.createElement('canvas'); sil.width = w; sil.height = h;
   const sg = sil.getContext('2d');
   sg.drawImage(bmp, 0, 0); sg.globalCompositeOperation = 'source-in'; sg.fillStyle = '#fff'; sg.fillRect(0, 0, w, h);
@@ -357,9 +357,6 @@ function drawFlames(now) {
     };
     const dark = Math.max(2, fw * 0.06);
     ctx.lineJoin = 'round';
-    // the same white cartoon outline as the rocket's, then the flame's own dark line inside it
-    ctx.lineWidth = dark + 2 * Math.max(2, OUTLINE * s.geo.h); ctx.strokeStyle = '#fff';
-    outer(); ctx.stroke();
     ctx.lineWidth = dark; ctx.strokeStyle = '#b8280f';
     outer(); ctx.stroke();
     ctx.fillStyle = '#ff5a1f'; outer(); ctx.fill();
