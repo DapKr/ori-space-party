@@ -205,6 +205,7 @@ function endFeature(now) {
 }
 
 const IN = 1000, OUT = 1000, DUR = 6000;
+const ROCKET_TURN = 70 * Math.PI / 180; // how fast a rocket can turn, per second
 
 function animateKids(dt, now) {
   const t = now / 1000;
@@ -235,14 +236,29 @@ function animateKids(dt, now) {
   for (const s of sprites) {
     let h = base, w = h * s.aspect;
     if (w > base * 1.3) { w = base * 1.3; h = w / s.aspect; }
-    s.x += s.vx * dt; s.y += s.vy * dt;
     // rockets turn to point anywhere, so keep their whole length (and flame) on screen whichever way they face
     const reach = s.nozzle ? h * 0.65 : 0;
     const minX = Math.min(Math.max(w / 2, reach), W / 2), minY = Math.min(Math.max(h / 2, reach), H / 2);
-    if (s.x < minX) { s.x = minX; s.vx = Math.abs(s.vx); }
-    if (s.x > W - minX) { s.x = W - minX; s.vx = -Math.abs(s.vx); }
-    if (s.y < minY) { s.y = minY; s.vy = Math.abs(s.vy); }
-    if (s.y > H - minY) { s.y = H - minY; s.vy = -Math.abs(s.vy); }
+    if (s.nozzle) {
+      // Rockets steer instead of bouncing: near an edge they pick a direction away from it and turn
+      // towards it gradually, so they fly a smooth curve with the nose following.
+      const zone = Math.min(W, H) * 0.15;
+      if (s.tvx == null) { s.tvx = s.vx; s.tvy = s.vy; }
+      if (s.x < minX + zone && s.tvx < 0) s.tvx = -s.tvx;
+      if (s.x > W - minX - zone && s.tvx > 0) s.tvx = -s.tvx;
+      if (s.y < minY + zone && s.tvy < 0) s.tvy = -s.tvy;
+      if (s.y > H - minY - zone && s.tvy > 0) s.tvy = -s.tvy;
+      const cur = Math.atan2(s.vy, s.vx), d = ((Math.atan2(s.tvy, s.tvx) - cur + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+      const na = cur + Math.sign(d) * Math.min(Math.abs(d), ROCKET_TURN * dt), sp = Math.hypot(s.vx, s.vy);
+      s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp;
+    }
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    // the screen edge (rockets only get here if they're still turning: they just slide along it, no flip)
+    const bounce = !s.nozzle;
+    if (s.x < minX) { s.x = minX; if (bounce) s.vx = Math.abs(s.vx); }
+    if (s.x > W - minX) { s.x = W - minX; if (bounce) s.vx = -Math.abs(s.vx); }
+    if (s.y < minY) { s.y = minY; if (bounce) s.vy = Math.abs(s.vy); }
+    if (s.y > H - minY) { s.y = H - minY; if (bounce) s.vy = -Math.abs(s.vy); }
 
     let x = s.x, y = s.y + Math.sin(t * 0.9 + s.ph) * h * 0.03;
     let rot = Math.sin(t * s.rs + s.ph) * 8;
@@ -251,7 +267,7 @@ function animateKids(dt, now) {
       const target = Math.atan2(s.vx, -s.vy) * 180 / Math.PI;
       if (s.heading == null) s.heading = target;
       const diff = ((target - s.heading + 540) % 360) - 180;
-      s.heading = ((s.heading + diff * Math.min(1, dt * 4) + 540) % 360) - 180; // kept in -180..180
+      s.heading = ((s.heading + diff * Math.min(1, dt * 3) + 540) % 360) - 180; // kept in -180..180
       rot = s.heading + Math.sin(t * s.rs + s.ph) * 4;
     }
     let opacity = 1;
