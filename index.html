@@ -38,7 +38,7 @@
 
   #banner { position: fixed; left: 50%; bottom: 5vh; z-index: 6; pointer-events: none; white-space: nowrap;
     transform: translate(-50%, 40px) scale(.9); opacity: 0; transition: opacity .5s, transform .5s cubic-bezier(.3,1.6,.5,1);
-    font-size: clamp(22px, 6vh, 72px); font-weight: 700; padding: .25em .9em; border-radius: 999px;
+    font-size: clamp(20px, min(6vh, 3.6vw), 72px); font-weight: 700; padding: .25em .9em; border-radius: 999px;
     background: rgba(10, 12, 45, .65); border: 3px solid rgba(255, 204, 51, .8); color: #fff;
     box-shadow: 0 0 40px rgba(255, 204, 51, .35); }
   #banner.show { opacity: 1; transform: translate(-50%, 0) scale(1); }

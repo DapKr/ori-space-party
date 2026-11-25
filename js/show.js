@@ -157,6 +157,51 @@ function baseHeight() {
   return H * Math.min(0.42, 0.95 / Math.sqrt(n + 0.8));
 }
 
+// ---------- spotlight banner lines (gender-neutral, so they fit any kid; {n} = the kid's name) ----------
+const LINES = {
+  welcome: [
+    'ברוכים הבאים לחלל, {n}! 🚀',
+    '3... 2... 1... המראה! {n} בחלל 🚀',
+    'הוסטון, יש לנו את {n}! 🧑‍🚀',
+    'השמיים נדלקו בשביל {n}! ⭐',
+    'החללית של {n} יצאה לדרך! 🚀',
+    'חייזרים, תכירו את {n}! 👽',
+    'מסע בין כוכבים עם {n}! 🌌',
+    'נחיתה רכה על הירח, {n}! 🌙',
+  ],
+  welcomeNoName: [
+    'שיגור חדש לחלל! 🚀',
+    '3... 2... 1... המראה! 🚀',
+    'הוסטון, יש לנו אסטרונאוטים! 🧑‍🚀',
+    'חללית חדשה בשמיים! 🛸',
+  ],
+  spotlight: [
+    '🌟 תראו מי פה: {n}! 🌟',
+    '🌌 כל הגלקסיה מחכה ל{n}!',
+    '👽 החייזרים מנופפים ל{n}!',
+    '☄️ זהירות! {n} במהירות האור!',
+    '🪐 {n} בסיבוב סביב שבתאי!',
+    '🌙 {n} בדרך לירח וחזרה!',
+    '🧑‍🚀 משימה סודית: לחייך ל{n}!',
+    '🎂 יום הולדת שמח מהחלל, באהבה מ{n}!',
+  ],
+  spotlightNoName: [
+    '🌟 כוכבי החלל שלנו! 🌟',
+    '👽 החייזרים אומרים שלום!',
+    '🎂 יום הולדת שמח מהחלל!',
+    '🪐 סיבוב מסביב לגלקסיה!',
+  ],
+};
+let lastLine = '';
+function line(list, name) { // a random line, never the same one twice in a row
+  let l;
+  do { l = list[Math.floor(Math.random() * list.length)]; } while (list.length > 1 && l === lastLine);
+  lastLine = l;
+  // "ל{n}" / "מ{n}" glue the letter to the name; a name in English letters gets a hyphen ("ל-Noa")
+  const hebrew = /^[֐-׿]/.test(name || '');
+  return l.replace(/([למב])\{n\}/, (m, p) => p + (hebrew ? '' : '-') + name).replace('{n}', name || '');
+}
+
 async function addSprite({ id, name, blob, nozzle }, feature) {
   if (sprites.some((s) => s.id === id)) return;
   const url = URL.createObjectURL(blob);
@@ -187,7 +232,7 @@ async function addSprite({ id, name, blob, nozzle }, feature) {
     ph: rand(0, 6.28), rs: rand(0.35, 0.7), born: performance.now(), emit: 0, hue: rand(0, 360) };
   sprites.push(s);
   stage.appendChild(el);
-  if (feature) featureQueue.push({ s, label: s.name ? `ברוכים הבאים לחלל, ${s.name}! 🚀` : 'שיגור חדש לחלל! 🚀' });
+  if (feature) featureQueue.push({ s, label: line(s.name ? LINES.welcome : LINES.welcomeNoName, s.name) });
   refreshUI();
 }
 
@@ -204,7 +249,7 @@ function removeSprite(id) {
 function spotlight(s) {
   if (!s) s = sprites[Math.floor(Math.random() * sprites.length)];
   if (!s) return;
-  featureQueue.push({ s, label: s.name ? `🌟 תראו מי פה: ${s.name}! 🌟` : '🌟 כוכבי החלל שלנו! 🌟' });
+  featureQueue.push({ s, label: line(s.name ? LINES.spotlight : LINES.spotlightNoName, s.name) });
 }
 
 const banner = $('banner'), spot = $('spot');
