@@ -31,6 +31,10 @@ const T = {
     [[545, 1560], [573, 1518], [565, 1700], [528, 1930], [495, 1935], [520, 1700]],
     [[940, 1522], [965, 1555], [985, 1700], [985, 1918], [965, 1920], [945, 1700]],
   ],
+  legArea: [ // generous areas around each leg, down to the floor
+    [[440, 1480], [640, 1480], [640, 2250], [330, 2250]],
+    [[870, 1480], [1070, 1480], [1180, 2250], [870, 2250]],
+  ],
   base: [[498, 1648], [992, 1645], [992, 1702], [498, 1727]],
   // spots that are always plain white body / red nose, for sampling their colour in each photo
   whiteSpots: [[540, 850], [980, 850], [600, 1350], [900, 1350], [750, 1450], [560, 1000], [960, 1000]],
@@ -407,12 +411,17 @@ export async function cutRocket(blob, { debug = false } = {}) {
   // 4. fins, legs (red) and the base (yellow), by colour near where the template puts them.
   //    They stick out of the board or lie on the floor, so the board's perspective only roughly fits them.
   const redGate = polyMask([...T.fins, ...T.legs].map((p) => p.map(map)), w, h, Math.round(0.06 * ws));
+  // The legs stand out from the board, so depending on the camera they reach well below (and wider than)
+  // where the board's perspective puts them. Search a big area under them, but only keep red that is
+  // connected to where a fin or leg should be (not the red paper scraps on the floor).
+  const legArea = polyMask(T.legArea.map((p) => p.map(map)), w, h, 0);
   const baseGate = polyMask([T.base.map(map)], w, h, Math.round(0.06 * ws));
   const parts = new Uint8Array(N), basePx = new Uint8Array(N);
-  for (let i = 0; i < N; i++) { parts[i] = red[i] && redGate[i]; basePx[i] = baseYellow[i] && baseGate[i]; }
+  for (let i = 0; i < N; i++) { parts[i] = red[i] && (redGate[i] || legArea[i]); basePx[i] = baseYellow[i] && baseGate[i]; }
   const pc = components(close(parts, w, h, 3), w, h, N * 0.0004);
   const partsMask = new Uint8Array(N);
-  const keep = new Set(pc.comps.map((c) => c.id));
+  const near = new Set(); for (let i = 0; i < N; i++) if (redGate[i] && pc.lab[i]) near.add(pc.lab[i]);
+  const keep = new Set(pc.comps.filter((c) => near.has(c.id)).map((c) => c.id));
   for (let i = 0; i < N; i++) if (keep.has(pc.lab[i])) partsMask[i] = 1;
   const partsOut = outside(partsMask, w, h); // fill glitter gaps inside the parts
   for (let i = 0; i < N; i++) if (!partsOut[i]) partsMask[i] = 1;
@@ -480,5 +489,5 @@ export async function cutRocket(blob, { debug = false } = {}) {
   bmp.close?.();
   const result = await toBlob(out);
   if (!debug) return result;
-  return { blob: result, k, origin: [x0, y0], debug: { baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
+  return { blob: result, k, origin: [x0, y0], debug: { legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
 }
