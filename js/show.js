@@ -11,7 +11,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const easeOutBack = (t) => { const c = 1.7; t -= 1; return 1 + (c + 1) * t * t * t + c * t * t; };
 
 // ---------- cut-out cache (this laptop only, so a reload doesn't re-cut everyone) ----------
-const CUT_VERSION = 10; // bump when the cutting changes, so photos cut the old way get cut again
+const CUT_VERSION = 11; // bump when the cutting changes, so photos cut the old way get cut again
 const cacheDb = new Promise((res) => {
   try {
     const r = indexedDB.open('ori-space-show', 1);

@@ -537,6 +537,9 @@ export async function cutRocket(blob, { debug = false } = {}) {
   const wc1 = newCanvas(cw, ch), wg1 = wc1.getContext('2d', { willReadFrequently: true });
   wg1.filter = `blur(${Math.max(8, Math.round(0.06 * ws / k))}px)`; wg1.drawImage(wc0, 0, 0);
   const smooth = wg1.getImageData(0, 0, cw, ch).data; // transparent pixels don't count: only white is averaged
+  const wc2 = newCanvas(cw, ch), wg2 = wc2.getContext('2d', { willReadFrequently: true });
+  wg2.filter = 'blur(1.2px)'; wg2.drawImage(wc0, 0, 0);
+  const fine = wg2.getImageData(0, 0, cw, ch).data; // what's finer than this is glitter, kept as is
 
   const alpha = new Uint8ClampedArray(CN), outD = new ImageData(cw, ch), o4 = outD.data;
   for (let y = 0; y < ch; y++) {
@@ -545,8 +548,10 @@ export async function cutRocket(blob, { debug = false } = {}) {
       const p = y * cw + x, o = p * 4;
       let r = srcD[o], g = srcD[o + 1], b = srcD[o + 2];
       if (isWhite[p] && smooth[o + 3]) {
-        const sp = Math.max(0, lum([r, g, b]) - lum([soft[o], soft[o + 1], soft[o + 2]]) - 6) * 0.8; // glitter
-        r = smooth[o] + sp; g = smooth[o + 1] + sp; b = smooth[o + 2] + sp;
+        // keep the finest detail, the 1–2 px glitter points in their own colours (a little boosted);
+        // the wider creases and broad shading of the wrinkles go
+        const dr = r - fine[o], dg = g - fine[o + 1], db = b - fine[o + 2];
+        r = smooth[o] + 1.8 * dr; g = smooth[o + 1] + 1.8 * dg; b = smooth[o + 2] + 1.8 * db;
       }
       let pa = partA[o + 3] / 255;
       // on the soft edge of a fin or leg, keep exactly the pixels that are red: a crisp, true edge
