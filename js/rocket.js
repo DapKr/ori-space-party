@@ -517,12 +517,37 @@ export async function cutRocket(blob, { debug = false } = {}) {
   bmp.close?.();
 
   const isRed = (r, g, b) => r > 1.6 * g && r > 1.6 * b && r > 20; // fin glitter, not the wood floor
+
+  // Smooth out the wrinkles in the white paper: on the white parts of the body (never the windows or
+  // rings, so the kids' faces stay as they are) replace the shading with a heavily smoothed version made
+  // from white pixels only, then add the paper's glitter sparkles back on top.
+  const keepOut = new Uint8Array(N); for (let i = 0; i < N; i++) keepOut[i] = windows[i] || yc[i];
+  const noSmooth = dilate(keepOut, w, h, 3);
+  const isWhite = new Uint8Array(CN), wd = new ImageData(cw, ch);
+  for (let y = 0; y < ch; y++) {
+    const wy = Math.min(h - 1, Math.floor((y + y0) * k));
+    for (let x = 0; x < cw; x++) {
+      const p = y * cw + x, o = p * 4;
+      if (bodyA[o + 3] < 128 || noSmooth[wy * w + Math.min(w - 1, Math.floor((x + x0) * k))]) continue;
+      const [, s, v] = hsv(srcD[o], srcD[o + 1], srcD[o + 2]);
+      if (s < 0.16 && v > 0.4) { isWhite[p] = 1; wd.data.set([srcD[o], srcD[o + 1], srcD[o + 2], 255], o); }
+    }
+  }
+  const wc0 = newCanvas(cw, ch); wc0.getContext('2d').putImageData(wd, 0, 0);
+  const wc1 = newCanvas(cw, ch), wg1 = wc1.getContext('2d', { willReadFrequently: true });
+  wg1.filter = `blur(${Math.max(8, Math.round(0.06 * ws / k))}px)`; wg1.drawImage(wc0, 0, 0);
+  const smooth = wg1.getImageData(0, 0, cw, ch).data; // transparent pixels don't count: only white is averaged
+
   const alpha = new Uint8ClampedArray(CN), outD = new ImageData(cw, ch), o4 = outD.data;
   for (let y = 0; y < ch; y++) {
     const wy = Math.min(h - 1, Math.floor((y + y0) * k));
     for (let x = 0; x < cw; x++) {
       const p = y * cw + x, o = p * 4;
       let r = srcD[o], g = srcD[o + 1], b = srcD[o + 2];
+      if (isWhite[p] && smooth[o + 3]) {
+        const sp = Math.max(0, lum([r, g, b]) - lum([soft[o], soft[o + 1], soft[o + 2]]) - 6) * 0.8; // glitter
+        r = smooth[o] + sp; g = smooth[o + 1] + sp; b = smooth[o + 2] + sp;
+      }
       let pa = partA[o + 3] / 255;
       // on the soft edge of a fin or leg, keep exactly the pixels that are red: a crisp, true edge
       if (pa > 0.02 && pa < 0.98) pa = isRed(r, g, b) ? 1 : 0;
