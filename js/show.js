@@ -157,7 +157,29 @@ function baseHeight() {
   return H * Math.min(0.42, 0.95 / Math.sqrt(n + 0.8));
 }
 
+// A white cartoon outline around the cut-out (like a sticker), as thick as OUTLINE × the picture's size.
+const OUTLINE = 0.02;
+async function outlined(blob, nozzle) {
+  const bmp = await createImageBitmap(blob);
+  const w = bmp.width, h = bmp.height, r = Math.max(3, Math.round(Math.max(w, h) * OUTLINE)), pad = r + 2;
+  const sil = document.createElement('canvas'); sil.width = w; sil.height = h;
+  const sg = sil.getContext('2d');
+  sg.drawImage(bmp, 0, 0); sg.globalCompositeOperation = 'source-in'; sg.fillStyle = '#fff'; sg.fillRect(0, 0, w, h);
+  const c = document.createElement('canvas'); c.width = w + 2 * pad; c.height = h + 2 * pad;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; g.drawImage(sil, pad + Math.cos(a) * r, pad + Math.sin(a) * r); }
+  g.drawImage(sil, pad, pad);
+  g.drawImage(bmp, pad, pad);
+  bmp.close?.();
+  const out = await toBlob(c, 'image/png');
+  // the picture grew by the padding: move the engine position with it
+  const nz = nozzle && { x: (nozzle.x * w + pad) / c.width, y: (nozzle.y * h + pad) / c.height, w: nozzle.w * w / c.width };
+  return { blob: out, nozzle: nz };
+}
+
 async function addSprite({ id, name, blob, nozzle }, feature) {
+  if (sprites.some((s) => s.id === id)) return;
+  try { ({ blob, nozzle } = await outlined(blob, nozzle)); } catch (e) { console.warn(e); }
   if (sprites.some((s) => s.id === id)) return;
   const url = URL.createObjectURL(blob);
   const el = new Image();
@@ -333,7 +355,12 @@ function drawFlames(now) {
       ctx.save(); ctx.translate(-fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 6.5 + s.ph)), sway(1)); ctx.restore();
       ctx.save(); ctx.translate(fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 5.5 + s.ph * 3)), sway(2)); ctx.restore();
     };
-    ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, fw * 0.06); ctx.strokeStyle = '#b8280f';
+    const dark = Math.max(2, fw * 0.06);
+    ctx.lineJoin = 'round';
+    // the same white cartoon outline as the rocket's, then the flame's own dark line inside it
+    ctx.lineWidth = dark + 2 * Math.max(2, OUTLINE * s.geo.h); ctx.strokeStyle = '#fff';
+    outer(); ctx.stroke();
+    ctx.lineWidth = dark; ctx.strokeStyle = '#b8280f';
     outer(); ctx.stroke();
     ctx.fillStyle = '#ff5a1f'; outer(); ctx.fill();
     // inner layers, each a smaller flickering tongue
