@@ -480,23 +480,6 @@ export async function cutRocket(blob, { debug = false } = {}) {
 
   // 5. build the full-size cut-out
   const sc = 1 / k;
-  const mask = newCanvas(FW, FH), mg = mask.getContext('2d');
-  mg.fillStyle = '#fff';
-  // smooth curve through the outline (quadratic segments between midpoints)
-  mg.beginPath();
-  const mid = (a, b) => [(a[0] + b[0]) / 2 * sc, (a[1] + b[1]) / 2 * sc];
-  mg.moveTo(...mid(outline[n - 1], outline[0]));
-  for (let i = 0; i < n; i++) mg.quadraticCurveTo(outline[i][0] * sc, outline[i][1] * sc, ...mid(outline[i], outline[(i + 1) % n]));
-  mg.closePath(); mg.fill();
-  if (baseHull.length > 2) {
-    mg.beginPath(); baseHull.forEach(([x, y], i) => (i ? mg.lineTo(x * sc, y * sc) : mg.moveTo(x * sc, y * sc))); mg.closePath(); mg.fill();
-  }
-  const pm = newCanvas(w, h), pg = pm.getContext('2d'), pd = pg.createImageData(w, h);
-  for (let i = 0; i < N; i++) if (partsMask[i]) pd.data.set([255, 255, 255, 255], i * 4);
-  pg.putImageData(pd, 0, 0);
-  // the parts were found at low resolution: blur while scaling up so their edges aren't staircase-jagged
-  mg.imageSmoothingQuality = 'high'; mg.filter = `blur(${(0.6 / k).toFixed(1)}px)`; mg.drawImage(pm, 0, 0, FW, FH); mg.filter = 'none';
-
   let x0 = FW, y0 = FH, x1 = 0, y1 = 0;
   const grow = (x, y) => { x *= sc; y *= sc; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
   outline.forEach(([x, y]) => grow(x, y)); baseHull.forEach(([x, y]) => grow(x, y));
@@ -505,32 +488,75 @@ export async function cutRocket(blob, { debug = false } = {}) {
   x0 = Math.max(0, Math.floor(x0 - pad)); y0 = Math.max(0, Math.floor(y0 - pad));
   x1 = Math.min(FW, Math.ceil(x1 + pad)); y1 = Math.min(FH, Math.ceil(y1 + pad));
 
-  const out = newCanvas(x1 - x0, y1 - y0), og = out.getContext('2d');
-  og.drawImage(bmp, -x0, -y0);
-  og.globalCompositeOperation = 'destination-in';
-  og.filter = 'blur(1px)'; // soft edge instead of a jagged one
-  og.drawImage(mask, -x0, -y0);
+  const cw = x1 - x0, ch = y1 - y0, CN = cw * ch;
+  const layer = (draw, filter) => { // a crop-sized canvas, drawn in full-image coordinates
+    const c = newCanvas(cw, ch), g = c.getContext('2d', { willReadFrequently: true });
+    g.translate(-x0, -y0); if (filter) g.filter = filter; g.imageSmoothingQuality = 'high'; g.fillStyle = '#fff';
+    draw(g); return g.getImageData(0, 0, cw, ch).data;
+  };
+  const fillPath = (g, pts, curved) => {
+    g.beginPath();
+    if (curved) { // smooth curve through the outline (quadratic segments between midpoints)
+      const m = pts.length, mid = (a, b) => [(a[0] + b[0]) / 2 * sc, (a[1] + b[1]) / 2 * sc];
+      g.moveTo(...mid(pts[m - 1], pts[0]));
+      for (let i = 0; i < m; i++) g.quadraticCurveTo(pts[i][0] * sc, pts[i][1] * sc, ...mid(pts[i], pts[(i + 1) % m]));
+    } else pts.forEach(([x, y], i) => (i ? g.lineTo(x * sc, y * sc) : g.moveTo(x * sc, y * sc)));
+    g.closePath(); g.fill();
+  };
+  const lowRes = (test) => { // a work-resolution mask as a canvas
+    const c = newCanvas(w, h), g = c.getContext('2d'), d = g.createImageData(w, h);
+    for (let i = 0; i < N; i++) if (test(i)) d.data.set([255, 255, 255, 255], i * 4);
+    g.putImageData(d, 0, 0); return c;
+  };
+  const srcD = layer((g) => g.drawImage(bmp, 0, 0));
+  const soft = layer((g) => g.drawImage(bmp, 0, 0), 'blur(1.5px)'); // for the texture: hides JPEG blocks
+  const bodyA = layer((g) => fillPath(g, outline, true));
+  const baseA = baseHull.length > 2 ? layer((g) => fillPath(g, baseHull, false)) : null;
+  // the parts were found at low resolution: scale up softly, then decide the edge pixel by pixel below
+  const up = `blur(${(0.8 / k).toFixed(1)}px)`;
+  const partA = layer((g) => g.drawImage(lowRes((i) => partsMask[i] && !gap[i]), 0, 0, FW, FH), up);
+  const gapA = layer((g) => g.drawImage(lowRes((i) => gap[i]), 0, 0, FW, FH), up);
   bmp.close?.();
-  // recolour the fins and legs (and fill the gaps) at full size
-  const od = og.getImageData(0, 0, out.width, out.height), px4 = od.data;
-  for (let y = 0; y < out.height; y++) {
+
+  const isRed = (r, g, b) => r > 1.6 * g && r > 1.6 * b && r > 20; // fin glitter, not the wood floor
+  const alpha = new Uint8ClampedArray(CN), outD = new ImageData(cw, ch), o4 = outD.data;
+  for (let y = 0; y < ch; y++) {
     const wy = Math.min(h - 1, Math.floor((y + y0) * k));
-    for (let x = 0; x < out.width; x++) {
-      const o = (y * out.width + x) * 4;
-      if (!px4[o + 3]) continue;
-      const wi = wy * w + Math.min(w - 1, Math.floor((x + x0) * k));
-      if (!partsMask[wi]) continue;
-      const r = px4[o], g = px4[o + 1], b = px4[o + 2];
-      if (!gap[wi] && r > 1.25 * Math.max(g, b)) {
-        // red glitter: the nose's exact colour, with this pixel's brightness relative to its part (texture)
-        const f = Math.min(2.5, lum([r, g, b]) / (gains.get(pc.lab[wi]) || avgGain));
-        px4[o] = Math.min(255, noseColor[0] * f); px4[o + 1] = Math.min(255, noseColor[1] * f); px4[o + 2] = Math.min(255, noseColor[2] * f);
-      } else if (gap[wi] || !body[wi]) { // the shadow seam, edge pixels of wall: paint them the nose's red
-        px4[o] = noseColor[0]; px4[o + 1] = noseColor[1]; px4[o + 2] = noseColor[2];
-      } // else: the body's own white edge, leave it
+    for (let x = 0; x < cw; x++) {
+      const p = y * cw + x, o = p * 4;
+      let r = srcD[o], g = srcD[o + 1], b = srcD[o + 2];
+      let pa = partA[o + 3] / 255;
+      // on the soft edge of a fin or leg, keep exactly the pixels that are red: a crisp, true edge
+      if (pa > 0.02 && pa < 0.98) pa = isRed(r, g, b) ? 1 : 0;
+      const ga = gapA[o + 3] / 255, onBody = bodyA[o + 3] > 127;
+      if (pa > 0 || (ga > 0.5 && !onBody)) {
+        const wi = wy * w + Math.min(w - 1, Math.floor((x + x0) * k));
+        if (pa > 0 && isRed(r, g, b)) {
+          // red glitter: the nose's exact colour, shaded by this spot's brightness relative to its part,
+          // taken from a smoothed copy (no JPEG blocks) plus the bright glitter sparkles on top
+          // (at the edge the smoothed copy picks up the bright wall: never let it be much brighter than the pixel)
+          const mean = gains.get(pc.lab[wi]) || avgGain, l = lum([r, g, b]);
+          const ls = Math.min(lum([soft[o], soft[o + 1], soft[o + 2]]), l + 8);
+          const f = Math.min(1.4, Math.max(0.65, ls / mean)) + Math.max(0, l - ls - 10) / mean * 0.8;
+          r = noseColor[0] * f; g = noseColor[1] * f; b = noseColor[2] * f;
+        } else if (!onBody) { // the shadow seam beside the body, dark spots: the nose's red
+          r = noseColor[0]; g = noseColor[1]; b = noseColor[2];
+        }
+      }
+      o4[o] = r; o4[o + 1] = g; o4[o + 2] = b;
+      alpha[p] = 255 * Math.max(bodyA[o + 3] / 255, baseA ? baseA[o + 3] / 255 : 0, pa, ga);
     }
   }
-  og.putImageData(od, 0, 0);
+  // soft edge instead of a jagged one: blur the combined mask slightly, then apply it
+  const am = newCanvas(cw, ch), amg = am.getContext('2d'), ad = amg.createImageData(cw, ch);
+  for (let p = 0; p < CN; p++) ad.data[p * 4 + 3] = alpha[p];
+  amg.putImageData(ad, 0, 0);
+  const ab = newCanvas(cw, ch), abg = ab.getContext('2d', { willReadFrequently: true });
+  abg.filter = 'blur(0.8px)'; abg.drawImage(am, 0, 0);
+  const aBlur = abg.getImageData(0, 0, cw, ch).data;
+  for (let p = 0; p < CN; p++) o4[p * 4 + 3] = aBlur[p * 4 + 3];
+  const out = newCanvas(cw, ch);
+  out.getContext('2d').putImageData(outD, 0, 0);
   const result = await toBlob(out);
   if (!debug) return result;
   return { blob: result, k, origin: [x0, y0], debug: { legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
