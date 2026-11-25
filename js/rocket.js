@@ -2,6 +2,7 @@
 // stays, the kids' faces show through the round windows, and the room around it is removed.
 // Returns { blob, nozzle } (nozzle: where the engine is, for the flame), or null when there is no
 // rocket in the photo, so the caller can fall back to plain background removal.
+// With { detectOnly: true } it only checks: true if the rocket is in the photo, else null (fast).
 //
 // How: find the blue stripe, the two yellow rings and the red nose (easy colours to spot), fit the
 // rocket's known shape onto them with a perspective transform, then snap the outline to the real
@@ -287,7 +288,7 @@ function resample(pts, kinds, step) {
 }
 
 // ---------- main ----------
-export async function cutRocket(blob, { debug = false } = {}) {
+export async function cutRocket(blob, { debug = false, detectOnly = false } = {}) {
   const bmp = await createImageBitmap(blob);
   const FW = bmp.width, FH = bmp.height, k = Math.min(1, WORK / Math.max(FW, FH));
   const w = Math.round(FW * k), h = Math.round(FH * k), N = w * h;
@@ -346,6 +347,7 @@ export async function cutRocket(blob, { debug = false } = {}) {
   const first = robustFit(src, dst, false, 0.05 * ws, 4);
   if (!first) { lastMiss = 'landmarks do not fit the rocket shape'; return null; }
   let map = first.map, used = first;
+  if (detectOnly) { bmp.close?.(); return true; } // just checking that the rocket is in the photo (upload page)
   const nosePoly = [...T.nose, ...T.noseLeft].map(map);
   const noseGate = polyMask([nosePoly], w, h, Math.round(0.08 * ws));
   const noseRed = new Uint8Array(N); for (let i = 0; i < N; i++) noseRed[i] = red[i] && noseGate[i];

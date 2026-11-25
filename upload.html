@@ -71,6 +71,10 @@
 
   .status { margin-top: 14px; text-align: center; font-size: 16px; min-height: 1.4em; color: var(--muted); }
   .status.err { color: var(--danger); }
+  .status.warn { color: #ffd98a; line-height: 1.5; }
+  .anyway { display: none; margin: 10px auto 0; font: inherit; font-size: 15px; color: var(--muted); background: none;
+    border: 0; text-decoration: underline; cursor: pointer; padding: 6px 10px; }
+  .no-rocket .anyway { display: block; }
 
   .done { display: none; text-align: center; padding: 26px 10px; }
   .done .big { font-size: 72px; }
@@ -87,7 +91,7 @@
   <header>
     <div class="rocket">🚀</div>
     <h1>שולחים את הילדים לחלל!</h1>
-    <p>צלמו את הילד או הילדה בתוך החללית או חליפת האסטרונאוט, ושלחו.<br>תוך כמה שניות הם יופיעו מרחפים על המסך הגדול ✨</p>
+    <p>צלמו את הילדים עם הפנים בחלונות של החללית, ושלחו.<br>תוך כמה שניות הם יופיעו מרחפים על המסך הגדול ✨</p>
   </header>
 
   <section class="card" id="card">
@@ -109,6 +113,7 @@
 
       <button class="send" id="send" type="button" disabled>🚀 שיגור לחלל!</button>
       <div class="status" id="status" role="status" aria-live="polite"></div>
+      <button class="anyway" id="anyway" type="button">לשלוח בכל זאת</button>
     </div>
 
     <div class="done">
@@ -119,19 +124,21 @@
     </div>
   </section>
 
-  <p class="tip">טיפ: כדאי לצלם מקרוב, כך שהקרטון ממלא את רוב התמונה.</p>
+  <p class="tip">טיפ: צלמו מקדימה, כך שכל החללית (מהחרטום ועד הרגליים) נכנסת לתמונה.</p>
 </main>
 
 <script type="module">
 import { addPhoto } from './js/store.js';
+import { cutRocket } from './js/rocket.js';
 
 const $ = (id) => document.getElementById(id);
 const card = $('card'), file = $('file'), send = $('send'), status = $('status');
-let chosen = null, previewUrl = null;
+let chosen = null, previewUrl = null, ready = null, retake = false, checkId = 0;
 
-function setStatus(text, err = false) {
+function setStatus(text, kind = '') { // kind: '', 'err' or 'warn'
   status.textContent = text;
-  status.classList.toggle('err', err);
+  status.classList.toggle('err', kind === 'err' || kind === true);
+  status.classList.toggle('warn', kind === 'warn');
 }
 
 // Shrink big phone photos before sending (faster upload, fixes rotation). Falls back to the original file.
@@ -161,35 +168,63 @@ function choose(f) {
   previewUrl = URL.createObjectURL(f);
   $('previewImg').src = previewUrl;
   card.classList.add('has-photo');
+  checkForRocket(f);
+}
+
+// Make sure the rocket is in the photo before sending. If it isn't found, suggest taking it again,
+// but always let the guest send anyway (the check can miss a rocket that is there).
+async function checkForRocket(f) {
+  const id = ++checkId;
+  retake = false;
+  card.classList.remove('no-rocket');
+  send.textContent = '🚀 שיגור לחלל!';
+  send.disabled = true;
+  setStatus('בודקים שהחללית בתמונה… 🔭');
+  ready = shrink(f);
+  let found = true;
+  try { found = !!(await cutRocket(await ready, { detectOnly: true })); } catch (e) { console.warn(e); } // can't check: let it through
+  if (id !== checkId) return; // another photo was picked meanwhile
+  if (found) {
+    setStatus('✅ מצאנו את החללית!');
+  } else {
+    retake = true;
+    card.classList.add('no-rocket');
+    send.textContent = '📸 לצלם שוב';
+    setStatus('🤔 לא מצאנו את החללית בתמונה. נסו לצלם שוב מקדימה, כשכל החללית בתוך התמונה', 'warn');
+  }
   send.disabled = false;
-  setStatus('');
 }
 
 $('pick').onclick = () => file.click();
 $('change').onclick = () => file.click();
 file.onchange = () => { choose(file.files[0]); file.value = ''; };
 
-send.onclick = async () => {
+async function sendPhoto() {
   if (!chosen) return;
   send.disabled = true;
+  card.classList.remove('no-rocket');
   setStatus('שולחים לחלל… 🛸');
   try {
-    const blob = await shrink(chosen);
+    const blob = await (ready || shrink(chosen));
     await addPhoto({ name: $('name').value, blob });
     card.classList.add('sent');
     setStatus('');
   } catch (e) {
     console.error(e);
-    setStatus('אופס, משהו השתבש. בדקו שיש אינטרנט ונסו שוב', true);
+    setStatus('אופס, משהו השתבש. בדקו שיש אינטרנט ונסו שוב', 'err');
     send.disabled = false;
   }
-};
+}
+send.onclick = () => (retake ? file.click() : sendPhoto());
+$('anyway').onclick = () => { retake = false; send.textContent = '🚀 שיגור לחלל!'; sendPhoto(); };
 
 $('again').onclick = () => {
-  chosen = null;
+  chosen = null; ready = null; retake = false;
   $('name').value = '';
-  card.classList.remove('sent', 'has-photo');
+  card.classList.remove('sent', 'has-photo', 'no-rocket');
+  send.textContent = '🚀 שיגור לחלל!';
   send.disabled = true;
+  setStatus('');
 };
 </script>
 </body>
