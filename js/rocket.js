@@ -50,6 +50,7 @@ export let lastMiss = '';
 
 // ---------- small image helpers ----------
 const newCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const lum = ([r, g, b]) => 0.3 * r + 0.59 * g + 0.11 * b;
 const toBlob = (c) => new Promise((res) => c.toBlob(res, 'image/png'));
 
 function hsv(r, g, b) {
@@ -455,6 +456,28 @@ export async function cutRocket(blob, { debug = false } = {}) {
     baseHull = hull(pts);
   }
 
+  // The fins touch the body along a dark shadow line that reads as neither red nor white, so close
+  // narrow gaps between the body and the parts (filled with the nose's red below).
+  const body = polyMask([outline], w, h), both = new Uint8Array(N), gap = new Uint8Array(N);
+  for (let i = 0; i < N; i++) both[i] = body[i] || partsMask[i];
+  const closedBoth = close(both, w, h, Math.max(2, Math.round(0.02 * ws)));
+  for (let i = 0; i < N; i++) if (closedBoth[i] && !both[i]) { gap[i] = 1; partsMask[i] = 1; }
+
+  // Fins and legs are in shadow near the floor and come out almost black. They're the same red as the
+  // nose, so scale each one's colour to the nose's average colour (keeps the glitter texture).
+  const meanColor = (test) => {
+    let r = 0, g = 0, b = 0, c = 0;
+    for (let i = 0; i < N; i++) if (test(i)) { r += raw[i * 4]; g += raw[i * 4 + 1]; b += raw[i * 4 + 2]; c++; }
+    return c ? [r / c, g / c, b / c] : null;
+  };
+  const noseColor = (nose && meanColor((i) => nr.lab[i] === nose.id)) || ref.red;
+  const gains = new Map();
+  for (const id of keep) {
+    const m = meanColor((i) => pc.lab[i] === id);
+    if (m) gains.set(id, Math.max(1, lum(m))); // the part's average brightness
+  }
+  const avgGain = gains.size ? [...gains.values()].reduce((s, g) => s + g, 0) / gains.size : lum(noseColor);
+
   // 5. build the full-size cut-out
   const sc = 1 / k;
   const mask = newCanvas(FW, FH), mg = mask.getContext('2d');
@@ -471,7 +494,8 @@ export async function cutRocket(blob, { debug = false } = {}) {
   const pm = newCanvas(w, h), pg = pm.getContext('2d'), pd = pg.createImageData(w, h);
   for (let i = 0; i < N; i++) if (partsMask[i]) pd.data.set([255, 255, 255, 255], i * 4);
   pg.putImageData(pd, 0, 0);
-  mg.imageSmoothingQuality = 'high'; mg.drawImage(pm, 0, 0, FW, FH);
+  // the parts were found at low resolution: blur while scaling up so their edges aren't staircase-jagged
+  mg.imageSmoothingQuality = 'high'; mg.filter = `blur(${(0.6 / k).toFixed(1)}px)`; mg.drawImage(pm, 0, 0, FW, FH); mg.filter = 'none';
 
   let x0 = FW, y0 = FH, x1 = 0, y1 = 0;
   const grow = (x, y) => { x *= sc; y *= sc; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
@@ -487,6 +511,26 @@ export async function cutRocket(blob, { debug = false } = {}) {
   og.filter = 'blur(1px)'; // soft edge instead of a jagged one
   og.drawImage(mask, -x0, -y0);
   bmp.close?.();
+  // recolour the fins and legs (and fill the gaps) at full size
+  const od = og.getImageData(0, 0, out.width, out.height), px4 = od.data;
+  for (let y = 0; y < out.height; y++) {
+    const wy = Math.min(h - 1, Math.floor((y + y0) * k));
+    for (let x = 0; x < out.width; x++) {
+      const o = (y * out.width + x) * 4;
+      if (!px4[o + 3]) continue;
+      const wi = wy * w + Math.min(w - 1, Math.floor((x + x0) * k));
+      if (!partsMask[wi]) continue;
+      const r = px4[o], g = px4[o + 1], b = px4[o + 2];
+      if (!gap[wi] && r > 1.25 * Math.max(g, b)) {
+        // red glitter: the nose's exact colour, with this pixel's brightness relative to its part (texture)
+        const f = Math.min(2.5, lum([r, g, b]) / (gains.get(pc.lab[wi]) || avgGain));
+        px4[o] = Math.min(255, noseColor[0] * f); px4[o + 1] = Math.min(255, noseColor[1] * f); px4[o + 2] = Math.min(255, noseColor[2] * f);
+      } else if (gap[wi] || !body[wi]) { // the shadow seam, edge pixels of wall: paint them the nose's red
+        px4[o] = noseColor[0]; px4[o + 1] = noseColor[1]; px4[o + 2] = noseColor[2];
+      } // else: the body's own white edge, leave it
+    }
+  }
+  og.putImageData(od, 0, 0);
   const result = await toBlob(out);
   if (!debug) return result;
   return { blob: result, k, origin: [x0, y0], debug: { legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
