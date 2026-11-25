@@ -31,6 +31,17 @@
     filter: drop-shadow(0 10px 14px rgba(0, 0, 0, .45)); }
   .kid canvas { position: absolute; } /* the rocket's flame, behind its picture */
 
+  /* spotlight moment: dim everything except the featured rocket, with a pool of light and slow rays behind it */
+  #spot { position: absolute; inset: 0; z-index: 5; pointer-events: none; opacity: 0; overflow: hidden;
+    background: radial-gradient(circle at 50% 47%, rgba(255, 236, 190, .30) 0, rgba(255, 210, 150, .12) 22vmin,
+      rgba(6, 5, 24, .55) 40vmin, rgba(3, 2, 14, .86) 75vmin); }
+  #spot .rays { position: absolute; left: 50%; top: 47%; width: 180vmax; height: 180vmax; margin: -90vmax 0 0 -90vmax;
+    background: repeating-conic-gradient(from 0deg, rgba(255, 230, 170, .16) 0deg 7deg, rgba(255, 230, 170, 0) 7deg 22deg);
+    -webkit-mask: radial-gradient(circle, #000 0, rgba(0, 0, 0, .6) 25vmin, transparent 60vmin);
+    mask: radial-gradient(circle, #000 0, rgba(0, 0, 0, .6) 25vmin, transparent 60vmin);
+    animation: rays 40s linear infinite; }
+  @keyframes rays { to { transform: rotate(360deg); } }
+
   #banner { position: fixed; left: 50%; bottom: 5vh; z-index: 6; pointer-events: none; white-space: nowrap;
     transform: translate(-50%, 40px) scale(.9); opacity: 0; transition: opacity .5s, transform .5s cubic-bezier(.3,1.6,.5,1);
     font-size: clamp(22px, 6vh, 72px); font-weight: 700; padding: .25em .9em; border-radius: 999px;
@@ -62,7 +73,7 @@
 <body>
 <canvas id="sky"></canvas>
 <h1 id="title"></h1>
-<div id="stage"></div>
+<div id="stage"><div id="spot"><div class="rays"></div></div></div>
 <div id="empty"><div class="rocket">🚀</div><p>מחכים לאסטרונאוטים שלנו…</p></div>
 <div id="banner"></div>
 <div id="toast"><div id="toastText"></div><div class="bar"><i id="toastBar"></i></div></div>

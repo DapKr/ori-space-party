@@ -207,7 +207,7 @@ function spotlight(s) {
   featureQueue.push({ s, label: s.name ? `🌟 תראו מי פה: ${s.name}! 🌟` : '🌟 כוכבי החלל שלנו! 🌟' });
 }
 
-const banner = $('banner');
+const banner = $('banner'), spot = $('spot');
 function endFeature(now) {
   if (featured) featured.s.el.style.zIndex = '';
   featured = null;
@@ -242,6 +242,7 @@ function animateKids(dt, now) {
     const el = now - featured.start;
     fe = smooth(Math.min(1, el / IN)) * smooth(Math.min(1, Math.max(0, (featured.dur - el) / OUT)));
   }
+  spot.style.opacity = fe; // the spotlight overlay fades in and out with the featured rocket
 
   const base = baseHeight();
   for (const s of sprites) {
