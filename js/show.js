@@ -11,7 +11,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const easeOutBack = (t) => { const c = 1.7; t -= 1; return 1 + (c + 1) * t * t * t + c * t * t; };
 
 // ---------- cut-out cache (this laptop only, so a reload doesn't re-cut everyone) ----------
-const CUT_VERSION = 11; // bump when the cutting changes, so photos cut the old way get cut again
+const CUT_VERSION = 12; // bump when the cutting changes, so photos cut the old way get cut again
 const cacheDb = new Promise((res) => {
   try {
     const r = indexedDB.open('ori-space-show', 1);
@@ -157,7 +157,7 @@ function baseHeight() {
   return H * Math.min(0.42, 0.95 / Math.sqrt(n + 0.8));
 }
 
-async function addSprite({ id, name, blob }, feature) {
+async function addSprite({ id, name, blob, nozzle }, feature) {
   if (sprites.some((s) => s.id === id)) return;
   const url = URL.createObjectURL(blob);
   const el = new Image();
@@ -170,7 +170,7 @@ async function addSprite({ id, name, blob }, feature) {
   const aspect = (el.naturalWidth || 1) / (el.naturalHeight || 1);
   const ang = rand(0, Math.PI * 2);
   const sp = rand(28, 50) * (H / 1080);
-  const s = { id, name: name || '', url, el, aspect,
+  const s = { id, name: name || '', url, el, aspect, nozzle: nozzle || null, // nozzle: a rocket, with a flame
     x: feature ? W / 2 : rand(W * 0.2, W * 0.8), y: feature ? H / 2 : rand(H * 0.25, H * 0.8),
     vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
     ph: rand(0, 6.28), rs: rand(0.35, 0.7), born: performance.now(), emit: 0, hue: rand(0, 360) };
@@ -240,7 +240,8 @@ function animateKids(dt, now) {
     if (s.x < minX) { s.x = minX; s.vx = Math.abs(s.vx); }
     if (s.x > W - minX) { s.x = W - minX; s.vx = -Math.abs(s.vx); }
     if (s.y < minY) { s.y = minY; s.vy = Math.abs(s.vy); }
-    if (s.y > H - minY) { s.y = H - minY; s.vy = -Math.abs(s.vy); }
+    const minBottom = Math.min(H / 2, minY + (s.nozzle ? h * 0.32 : 0)); // rockets: room for the flame
+    if (s.y > H - minBottom) { s.y = H - minBottom; s.vy = -Math.abs(s.vy); }
 
     let x = s.x, y = s.y + Math.sin(t * 0.9 + s.ph) * h * 0.03;
     let rot = Math.sin(t * s.rs + s.ph) * 8;
@@ -262,8 +263,19 @@ function animateKids(dt, now) {
     s.el.style.height = h + 'px';
     s.el.style.opacity = opacity;
     s.el.style.transform = `translate(${x - w / 2}px, ${y - h / 2}px) rotate(${rot}deg)`;
+    s.geo = { x, y, w, h, rot, opacity };
 
     s.emit += dt;
+    if (s.nozzle) { // rocket: a few sparks flying off the flame's tip (the flame itself is drawn in drawFlames)
+      while (s.emit > 0.08 && particles.length < 700) {
+        s.emit -= 0.08;
+        const a = rot * Math.PI / 180, tip = flameTip(s, t);
+        const dir = a + Math.PI / 2 + rand(-0.5, 0.5), v = rand(40, 110) * (h / 500 + 0.4);
+        particles.push({ x: tip[0], y: tip[1], vx: Math.cos(dir) * v, vy: Math.sin(dir) * v,
+          r: rand(1.2, 2.6) * (h / 400 + 0.5), life: 0.7, max: 0.7, hue: rand(20, 50) });
+      }
+      continue;
+    }
     while (s.emit > 0.06 && particles.length < 700) {
       s.emit -= 0.06;
       const vl = Math.hypot(s.vx, s.vy) || 1;
@@ -272,6 +284,63 @@ function animateKids(dt, now) {
         vx: dx * rand(15, 40) + rand(-8, 8), vy: dy * rand(15, 40) + rand(-8, 8),
         r: rand(1.5, 3.5) * (h / 300 + 0.5), life: 1.6, max: 1.6, hue: (s.hue + rand(-30, 30) + t * 20) % 360 });
     }
+  }
+}
+
+// ---------- cartoon rocket flames (behind each rocket, out of its yellow base) ----------
+const flameLen = (s, t) => s.geo.h * 0.3 * (1 + 0.12 * Math.sin(t * 13 + s.ph) + 0.07 * Math.sin(t * 23 + s.ph * 2));
+
+// one flame tongue pointing down from (0,0): rounded top, bulging sides, a tip that sways
+function tongue(g, w, len, sway) {
+  g.moveTo(-w / 2, 0);
+  g.bezierCurveTo(-w / 2, len * 0.45, -w * 0.2 + sway * 0.5, len * 0.72, sway, len);
+  g.bezierCurveTo(w * 0.2 + sway * 0.5, len * 0.72, w / 2, len * 0.45, w / 2, 0);
+  g.quadraticCurveTo(0, -w * 0.15, -w / 2, 0);
+}
+
+// in screen coordinates: where the flame starts on this rocket (just inside its base) and its tip
+function flameFrame(s) {
+  const { x, y, w, h, rot } = s.geo, a = rot * Math.PI / 180;
+  const lx = (s.nozzle.x - 0.5) * w, ly = (s.nozzle.y - 0.5) * h - h * 0.03;
+  return { a, ox: x + lx * Math.cos(a) - ly * Math.sin(a), oy: y + lx * Math.sin(a) + ly * Math.cos(a) };
+}
+function flameTip(s, t) {
+  const f = flameFrame(s), len = flameLen(s, t) * 0.9;
+  return [f.ox - Math.sin(f.a) * len, f.oy + Math.cos(f.a) * len];
+}
+
+function drawFlames(now) {
+  const t = now / 1000;
+  for (const s of sprites) {
+    if (!s.nozzle || !s.geo || !s.geo.h) continue;
+    const { a, ox, oy } = flameFrame(s), fw = s.nozzle.w * s.geo.w * 0.82, len = flameLen(s, t);
+    const sway = (k) => Math.sin(t * (9 + k) + s.ph * (k + 1)) * fw * 0.1;
+    if (!(fw > 1 && len > 1)) continue;
+    ctx.save();
+    try {
+    ctx.globalAlpha = s.geo.opacity;
+    ctx.translate(ox, oy); ctx.rotate(a);
+    // soft glow
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createRadialGradient(0, len * 0.35, 0, 0, len * 0.35, len * 0.9);
+    glow.addColorStop(0, 'rgba(255, 150, 40, 0.45)'); glow.addColorStop(1, 'rgba(255, 80, 20, 0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.ellipse(0, len * 0.35, fw * 1.1, len * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // outer flame: a big tongue and two side tongues, with a dark cartoon outline around them all
+    const outer = () => {
+      ctx.beginPath();
+      tongue(ctx, fw, len, sway(0));
+      ctx.save(); ctx.translate(-fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 17 + s.ph)), sway(1)); ctx.restore();
+      ctx.save(); ctx.translate(fw * 0.27, 0); tongue(ctx, fw * 0.5, len * (0.6 + 0.08 * Math.sin(t * 15 + s.ph * 3)), sway(2)); ctx.restore();
+    };
+    ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, fw * 0.06); ctx.strokeStyle = '#b8280f';
+    outer(); ctx.stroke();
+    ctx.fillStyle = '#ff5a1f'; outer(); ctx.fill();
+    // inner layers, each a smaller flickering tongue
+    [['#ff9d00', 0.72, 0.78], ['#ffd93b', 0.46, 0.56], ['#fff6d0', 0.22, 0.32]].forEach(([c, kw, kl], i) => {
+      ctx.fillStyle = c; ctx.beginPath(); tongue(ctx, fw * kw, len * kl * (1 + 0.06 * Math.sin(t * (19 + i * 4) + s.ph)), sway(i + 3) * kw); ctx.fill();
+    });
+    } finally { ctx.restore(); } // never leave the sky's drawing state shifted, even after an error
   }
 }
 
@@ -284,6 +353,7 @@ function frame(now) {
   if (!W || !H) return;
   try { drawSky(dt, now); } catch (e) { console.error(e); }
   try { animateKids(dt, now); } catch (e) { console.error(e); }
+  try { drawFlames(now); } catch (e) { console.error(e); }
 }
 requestAnimationFrame(frame);
 
@@ -372,8 +442,10 @@ async function runJobs() {
       let cut = false;
       // Kids posing in Ori's rocket: cut out exactly the rocket (faces in the windows), nothing around it.
       const rocket = settings.cut ? await cutRocket(out).catch((e) => { console.warn(e); return null; }) : null;
+      let nozzle = null;
       if (rocket) {
-        out = rocket;
+        out = rocket.blob;
+        nozzle = rocket.nozzle;
         cut = true;
       } else if (settings.cut) {
         console.info('No rocket found, using general background removal:', rocketMiss);
@@ -396,9 +468,9 @@ async function runJobs() {
         cut = true;
       }
       if (!known.has(meta.id)) continue;
-      await cache.put({ id: meta.id, blob: out, cut, v: CUT_VERSION });
+      await cache.put({ id: meta.id, blob: out, cut, nozzle, v: CUT_VERSION });
       setToast('שוגר! 🚀', 1);
-      await addSprite({ id: meta.id, name: meta.name, blob: out }, feature);
+      await addSprite({ id: meta.id, name: meta.name, blob: out, nozzle }, feature);
     } catch (err) {
       console.error(err);
       // Never leave a kid out: show the uncut photo (not cached, so a reload tries cutting again).
@@ -480,7 +552,7 @@ async function sync(first) {
     for (const meta of photos) {
       if (known.has(meta.id)) continue;
       const hit = first ? await cache.get(meta.id) : null;
-      if (hit && hit.v === CUT_VERSION) { known.add(meta.id); await addSprite({ id: meta.id, name: meta.name, blob: hit.blob }, false); }
+      if (hit && hit.v === CUT_VERSION) { known.add(meta.id); await addSprite({ id: meta.id, name: meta.name, blob: hit.blob, nozzle: hit.nozzle }, false); }
       else queuePhoto(meta, true);
     }
     for (const id of [...known]) if (!ids.has(id)) forget(id);

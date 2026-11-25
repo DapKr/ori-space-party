@@ -1,7 +1,7 @@
 // Finds Ori's cardboard rocket in a photo and cuts it out: the rocket (nose, body, fins, legs, base)
 // stays, the kids' faces show through the round windows, and the room around it is removed.
-// Returns null when there is no rocket in the photo, so the caller can fall back to plain
-// background removal.
+// Returns { blob, nozzle } (nozzle: where the engine is, for the flame), or null when there is no
+// rocket in the photo, so the caller can fall back to plain background removal.
 //
 // How: find the blue stripe, the two yellow rings and the red nose (easy colours to spot), fit the
 // rocket's known shape onto them with a perspective transform, then snap the outline to the real
@@ -586,6 +586,14 @@ export async function cutRocket(blob, { debug = false } = {}) {
   const out = newCanvas(cw, ch);
   out.getContext('2d').putImageData(outD, 0, 0);
   const result = await toBlob(out);
-  if (!debug) return result;
-  return { blob: result, k, origin: [x0, y0], debug: { T, map, legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
+  // where the engine is: bottom middle of the yellow base, as fractions of the cut-out (for the flame)
+  const bp = baseHull.length > 2 ? baseHull : T.base.map(map);
+  const bxs = bp.map((p) => p[0] * sc), bys = bp.map((p) => p[1] * sc);
+  const nozzle = {
+    x: ((Math.min(...bxs) + Math.max(...bxs)) / 2 - x0) / cw,
+    y: (Math.max(...bys) - y0) / ch,
+    w: (Math.max(...bxs) - Math.min(...bxs)) / cw,
+  };
+  if (!debug) return { blob: result, nozzle };
+  return { blob: result, nozzle, k, origin: [x0, y0], debug: { T, map, legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
 }
