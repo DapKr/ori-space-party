@@ -35,7 +35,8 @@ const T = {
     [[440, 1480], [640, 1480], [640, 2250], [330, 2250]],
     [[870, 1480], [1070, 1480], [1180, 2250], [870, 2250]],
   ],
-  base: [[498, 1648], [992, 1645], [992, 1702], [498, 1727]],
+  // a trapezoid whose ends flare outward (measured on a photo of the board lying flat): TL TR BR BL
+  base: [[523, 1641], [977, 1643], [997, 1709], [497, 1707]],
   // spots that are always plain white body / red nose, for sampling their colour in each photo
   whiteSpots: [[540, 850], [980, 850], [600, 1350], [900, 1350], [750, 1450], [560, 1000], [960, 1000]],
   redSpots: [[765, 420], [700, 520], [830, 520], [765, 540]],
@@ -243,7 +244,7 @@ function normalizer(pts) {
   return { f: (p) => [(p[0] - cx) * s, (p[1] - cy) * s], inv: (p) => [p[0] / s + cx, p[1] / s + cy] };
 }
 // returns a function template-point -> image-point
-function fit(src, dst, perspective) {
+export function fit(src, dst, perspective) { // exported for calibration tests
   const ns = normalizer(src), nd = normalizer(dst), A = [], b = [];
   src.forEach((sp, i) => {
     const [x, y] = ns.f(sp), [u, v] = nd.f(dst[i]);
@@ -440,18 +441,15 @@ export async function cutRocket(blob, { debug = false } = {}) {
   let baseHull = [];
   if (bc.comps.length) {
     const ids = new Set(bc.comps.map((c) => c.id));
-    const tl = map(T.base[0]), tr = map(T.base[1]);
+    const [tl, tr, br, bl] = T.base.map(map);
     const pts = [...rowEnds(bc.lab, w, ids, bc.comps), tl, tr, map([520, 1625]), map([980, 1625])]; // overlap the body: no seam
-    // the strip's ends are often in shadow: run its sides straight down from the top corners
-    // to a line fitted along the bottom of the yellow that was found
+    // The strip's ends are often in shadow, and they flare outward: run its slanted sides (from the
+    // template) down from the top corners to a line fitted along the bottom of the yellow that was found.
     const bottom = bottomLine(bc.lab, w, ids, bc.comps);
-    if (bottom) {
-      const a = map([750, 1600]), b = map([750, 1700]), l = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      const dn = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
-      for (const p of [tl, tr]) {
-        const t = (bottom.a + bottom.b * p[0] - p[1]) / (dn[1] - bottom.b * dn[0]);
-        if (t > 0 && t < 0.3 * ws) pts.push([p[0] + t * dn[0], p[1] + t * dn[1]]);
-      }
+    for (const [p, q] of [[tl, bl], [tr, br]]) {
+      const l = Math.hypot(q[0] - p[0], q[1] - p[1]), dn = [(q[0] - p[0]) / l, (q[1] - p[1]) / l];
+      const t = bottom ? (bottom.a + bottom.b * p[0] - p[1]) / (dn[1] - bottom.b * dn[0]) : NaN;
+      pts.push(t > 0 && t < 2 * l ? [p[0] + t * dn[0], p[1] + t * dn[1]] : q);
     }
     baseHull = hull(pts);
   }
@@ -559,5 +557,5 @@ export async function cutRocket(blob, { debug = false } = {}) {
   out.getContext('2d').putImageData(outD, 0, 0);
   const result = await toBlob(out);
   if (!debug) return result;
-  return { blob: result, k, origin: [x0, y0], debug: { legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
+  return { blob: result, k, origin: [x0, y0], debug: { T, map, legs: T.legs.map((p) => p.map(map)), legArea: T.legArea.map((p) => p.map(map)), baseHull, basePx: [...bc.comps.map((c) => [c.x0, c.y0, c.x1, c.y1, c.area])], offs: [...offs], sm, kinds: pts.map((o) => o.kind), tp: pts.map((o) => o.p), used, err: used.src.map((p, i) => Math.round(Math.hypot(map(p)[0] - used.dst[i][0], map(p)[1] - used.dst[i][1]))), corners, rings: rings.map((r) => [r.cx, r.cy]), template: pts.map((o) => o.q), outline, base: T.base.map(map), partsMask, w, h } };
 }
